@@ -69,11 +69,11 @@
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div class="flex justify-between h-16">
                 <div class="flex items-center">
-                    <a href="/" class="text-xl font-bold text-white">🃏 德州扑克</a>
+                    <a href="/" class="text-xl font-bold text-white">🃏 <span data-i18n="德州扑克">德州扑克</span></a>
                 </div>
                 <div class="flex items-center space-x-4">
                     <span id="playerInfo" class="text-gray-300"></span>
-                    <button id="exitBtn" class="bg-red-600 hover:bg-red-700 px-4 py-2 rounded text-sm hidden">
+                    <button id="exitBtn" class="bg-red-600 hover:bg-red-700 px-4 py-2 rounded text-sm hidden" data-i18n="退出游戏">
                         退出游戏
                     </button>
                 </div>
@@ -120,12 +120,12 @@
             
             socket.on('disconnect', function(reason) {
                 console.log('🔌 Disconnected from server:', reason);
-                showNotification('与服务器断开连接', 'warning');
+                showNotification(I18N.t('与服务器断开连接'), 'warning');
             });
             
             socket.on('reconnect', function(attemptNumber) {
                 console.log('🔄 Reconnected after', attemptNumber, 'attempts');
-                showNotification('重连成功！', 'success');
+                showNotification(I18N.t('重连成功！'), 'success');
             });
             
             socket.on('reconnect_attempt', function(attemptNumber) {
@@ -196,14 +196,14 @@
         function updatePlayerInfo() {
             const playerInfoElement = document.getElementById('playerInfo');
             if (currentPlayer && playerInfoElement) {
-                playerInfoElement.textContent = `玩家: ${currentPlayer.nickname}`;
+                playerInfoElement.textContent = I18N.t('玩家: {0}', currentPlayer.nickname);
                 document.getElementById('exitBtn').classList.remove('hidden');
             }
         }
 
         // 退出按钮事件
         document.getElementById('exitBtn').addEventListener('click', function() {
-            if (confirm('确定要退出游戏吗？')) {
+            if (confirm(I18N.t('确定要退出游戏吗？'))) {
                 localStorage.removeItem('poker_player');
                 location.href = '/';
             }
@@ -221,6 +221,9 @@
             }
         });
     </script>
+
+    <!-- 国际化脚本 -->
+    <script src="/static/js/i18n.js"></script>
 
     <!-- 音乐播放器脚本 -->
     <script src="/static/js/music-player.js"></script>

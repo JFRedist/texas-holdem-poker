@@ -62,12 +62,22 @@
         <div class="bg-gray-800 rounded-xl p-6 mb-8 border border-gray-700">
             <div class="flex justify-between items-center mb-4">
                 <div>
-                    <h1 class="text-3xl font-bold text-white">🎰 游戏大厅</h1>
-                    <p class="text-gray-300 mt-2">选择一个房间开始游戏，或创建新房间</p>
+                    <h1 class="text-3xl font-bold text-white">🎰 <span data-i18n="游戏大厅">游戏大厅</span></h1>
+                    <p class="text-gray-300 mt-2" data-i18n="选择一个房间开始游戏，或创建新房间">选择一个房间开始游戏，或创建新房间</p>
                 </div>
-                <div class="text-right">
-                    <div class="text-2xl font-bold text-blue-400" id="onlineCount">0</div>
-                    <div class="text-sm text-gray-400">在线玩家</div>
+                <div class="text-right flex items-center gap-6">
+                    <div>
+                        <div class="text-2xl font-bold text-blue-400" id="onlineCount">0</div>
+                        <div class="text-sm text-gray-400" data-i18n="在线玩家">在线玩家</div>
+                    </div>
+                    <!-- 语言切换 -->
+                    <button 
+                        id="langSwitchBtn"
+                        class="bg-gray-700 hover:bg-gray-600 text-white font-semibold py-2 px-4 rounded-lg transition duration-200"
+                        title="切换语言 / Switch Language"
+                    >
+                        🌐 <span id="langSwitchLabel">中文</span>
+                    </button>
                 </div>
             </div>
             
@@ -77,13 +87,13 @@
                     id="createTableBtn"
                     class="bg-green-600 hover:bg-green-700 text-white font-semibold py-2 px-6 rounded-lg transition duration-200 transform hover:scale-105"
                 >
-                    🆕 创建房间
+                    🆕 <span data-i18n="创建房间">创建房间</span>
                 </button>
                 <button 
                     id="refreshBtn"
                     class="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-6 rounded-lg transition duration-200"
                 >
-                    🔄 刷新列表
+                    🔄 <span data-i18n="刷新列表">刷新列表</span>
                 </button>
             </div>
         </div>
@@ -91,8 +101,8 @@
         <!-- 房间列表 -->
         <div class="bg-gray-800 rounded-xl p-6 border border-gray-700">
             <div class="flex justify-between items-center mb-6">
-                <h2 class="text-xl font-semibold text-white">📋 房间列表</h2>
-                <div class="text-sm text-gray-400" id="tableCount">0 个房间</div>
+                <h2 class="text-xl font-semibold text-white">📋 <span data-i18n="房间列表">房间列表</span></h2>
+                <div class="text-sm text-gray-400" id="tableCount">0 <span data-i18n="个房间">个房间</span></div>
             </div>
 
             <!-- 房间列表容器 -->
@@ -100,13 +110,13 @@
                 <!-- 空状态 -->
                 <div id="emptyState" class="text-center py-12">
                     <div class="text-6xl mb-4">🃏</div>
-                    <h3 class="text-xl font-semibold text-white mb-2">暂无房间</h3>
-                    <p class="text-gray-400 mb-6">成为第一个创建房间的玩家吧！</p>
+                    <h3 class="text-xl font-semibold text-white mb-2" data-i18n="暂无房间">暂无房间</h3>
+                    <p class="text-gray-400 mb-6" data-i18n="成为第一个创建房间的玩家吧！">成为第一个创建房间的玩家吧！</p>
                     <button 
                         class="bg-green-600 hover:bg-green-700 text-white font-semibold py-2 px-6 rounded-lg transition duration-200 transform hover:scale-105"
                         onclick="openCreateTableModal()"
                     >
-                        创建第一个房间
+                        <span data-i18n="创建第一个房间">创建第一个房间</span>
                     </button>
                 </div>
             </div>
@@ -119,13 +129,13 @@
     <div class="min-h-screen flex items-center justify-center p-4">
         <div class="bg-gray-800 rounded-xl p-4 sm:p-6 max-w-md w-full border border-gray-700 max-h-[90vh] overflow-y-auto relative">
         <div class="flex justify-between items-center mb-4 sm:mb-6">
-            <h3 class="text-lg sm:text-xl font-semibold text-white">🆕 创建新房间</h3>
+            <h3 class="text-lg sm:text-xl font-semibold text-white">🆕 <span data-i18n="创建新房间">创建新房间</span></h3>
             <button id="closeModalBtn" class="text-gray-400 hover:text-white text-2xl">&times;</button>
         </div>
 
         <form id="createTableForm" class="space-y-3 sm:space-y-4">
             <div>
-                <label class="block text-sm font-medium text-gray-300 mb-2">房间名称</label>
+                <label class="block text-sm font-medium text-gray-300 mb-2" data-i18n="房间名称">房间名称</label>
                 <input 
                     type="text" 
                     id="tableTitle" 
@@ -133,25 +143,26 @@
                     maxlength="30"
                     class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 text-white"
                     placeholder="输入房间名称"
+                    data-i18n-placeholder="输入房间名称"
                     required
                 >
             </div>
 
             <!-- 游戏模式选择 -->
             <div class="mb-3 sm:mb-4">
-                <label class="block text-sm font-medium text-gray-300 mb-2">游戏模式</label>
+                <label class="block text-sm font-medium text-gray-300 mb-2" data-i18n="游戏模式">游戏模式</label>
                 <div class="grid grid-cols-2 gap-2">
                     <label class="cursor-pointer">
                         <input type="radio" name="gameMode" value="blinds" checked class="sr-only peer">
                         <div class="bg-gray-700 border-2 border-gray-600 rounded-lg p-2 sm:p-3 peer-checked:border-blue-500 peer-checked:bg-blue-900/30 hover:border-gray-500 transition-colors">
-                            <div class="text-white font-medium text-sm sm:text-base">🎯 大小盲注</div>
+                            <div class="text-white font-medium text-sm sm:text-base">🎯 <span data-i18n="盲注模式">盲注模式</span></div>
                             <div class="text-gray-400 text-xs">传统模式</div>
                         </div>
                     </label>
                     <label class="cursor-pointer">
                         <input type="radio" name="gameMode" value="ante" class="sr-only peer">
                         <div class="bg-gray-700 border-2 border-gray-600 rounded-lg p-2 sm:p-3 peer-checked:border-green-500 peer-checked:bg-green-900/30 hover:border-gray-500 transition-colors">
-                            <div class="text-white font-medium text-sm sm:text-base">⚖️ 按比例下注</div>
+                            <div class="text-white font-medium text-sm sm:text-base">⚖️ <span data-i18n="按比例下注">按比例下注</span></div>
                             <div class="text-gray-400 text-xs">所有人平等</div>
                         </div>
                     </label>
@@ -161,7 +172,7 @@
             <!-- 大小盲注设置（传统模式） -->
             <div id="blindsSettings" class="grid grid-cols-2 gap-4 mb-4">
                 <div>
-                    <label class="block text-sm font-medium text-gray-300 mb-2">小盲注</label>
+                    <label class="block text-sm font-medium text-gray-300 mb-2" data-i18n="小盲">小盲</label>
                     <input 
                         type="number" 
                         id="smallBlind" 
@@ -174,7 +185,7 @@
                     >
                 </div>
                 <div>
-                    <label class="block text-sm font-medium text-gray-300 mb-2">大盲注</label>
+                    <label class="block text-sm font-medium text-gray-300 mb-2" data-i18n="大盲">大盲</label>
                     <input 
                         type="number" 
                         id="bigBlind" 
@@ -190,7 +201,7 @@
 
             <!-- 按比例下注设置（新模式） -->
             <div id="anteSettings" class="hidden mb-4">
-                <label class="block text-sm font-medium text-gray-300 mb-2">下注比例</label>
+                <label class="block text-sm font-medium text-gray-300 mb-2" data-i18n="下注比例">下注比例</label>
                 <div class="flex items-center space-x-2">
                     <input 
                         type="range" 
@@ -211,7 +222,7 @@
 
             <div class="grid grid-cols-2 gap-4">
                 <div>
-                    <label class="block text-sm font-medium text-gray-300 mb-2">初始筹码</label>
+                    <label class="block text-sm font-medium text-gray-300 mb-2" data-i18n="初始筹码">初始筹码</label>
                     <select 
                         id="initialChips" 
                         name="initialChips"
@@ -226,7 +237,7 @@
                     </select>
                 </div>
                 <div>
-                    <label class="block text-sm font-medium text-gray-300 mb-2">最大玩家数</label>
+                    <label class="block text-sm font-medium text-gray-300 mb-2" data-i18n="最大玩家数">最大玩家数</label>
                     <select 
                         id="maxPlayers" 
                         name="maxPlayers"
@@ -242,11 +253,11 @@
             </div>
 
             <div>
-                <label class="block text-sm font-medium text-gray-300 mb-2 sm:mb-3">🤖 添加机器人</label>
+                <label class="block text-sm font-medium text-gray-300 mb-2 sm:mb-3">🤖 <span data-i18n="添加机器人">添加机器人</span></label>
                 <div class="space-y-2 sm:space-y-3">
                     <div class="flex items-center justify-between bg-gray-700 rounded-lg p-2 sm:p-3">
                         <div class="flex-1 min-w-0">
-                            <span class="text-white font-medium text-sm sm:text-base">初级机器人</span>
+                            <span class="text-white font-medium text-sm sm:text-base" data-i18n="初级机器人">初级机器人</span>
                             <div class="text-xs text-gray-400 hidden sm:block">随机策略，适合新手练习</div>
                         </div>
                         <div class="flex items-center space-x-1 sm:space-x-2">
@@ -257,7 +268,7 @@
                     </div>
                     <div class="flex items-center justify-between bg-gray-700 rounded-lg p-2 sm:p-3">
                         <div class="flex-1 min-w-0">
-                            <span class="text-white font-medium text-sm sm:text-base">中级机器人</span>
+                            <span class="text-white font-medium text-sm sm:text-base" data-i18n="中级机器人">中级机器人</span>
                             <div class="text-xs text-gray-400 hidden sm:block">蒙特卡洛策略，有一定技巧</div>
                         </div>
                         <div class="flex items-center space-x-1 sm:space-x-2">
@@ -268,7 +279,7 @@
                     </div>
                     <div class="flex items-center justify-between bg-gray-700 rounded-lg p-2 sm:p-3">
                         <div class="flex-1 min-w-0">
-                            <span class="text-white font-medium text-sm sm:text-base">高级机器人</span>
+                            <span class="text-white font-medium text-sm sm:text-base" data-i18n="高级机器人">高级机器人</span>
                             <div class="text-xs text-gray-400 hidden sm:block">复杂策略，会诈唬和分析</div>
                         </div>
                         <div class="flex items-center space-x-1 sm:space-x-2">
@@ -287,13 +298,13 @@
                     id="cancelCreateBtn"
                     class="flex-1 bg-gray-600 hover:bg-gray-700 text-white font-semibold py-2 sm:py-3 px-3 sm:px-4 rounded-lg transition duration-200 text-sm sm:text-base"
                 >
-                    取消
+                    <span data-i18n="取消">取消</span>
                 </button>
                 <button 
                     type="submit"
                     class="flex-1 bg-green-600 hover:bg-green-700 text-white font-semibold py-2 sm:py-3 px-3 sm:px-4 rounded-lg transition duration-200 text-sm sm:text-base"
                 >
-                    创建房间
+                    <span data-i18n="创建房间">创建房间</span>
                 </button>
             </div>
         </form>
@@ -315,6 +326,16 @@
 
         currentPlayer = JSON.parse(savedPlayer);
         updatePlayerInfo();
+
+        // 初始化语言切换按钮
+        const langLabel = document.getElementById('langSwitchLabel');
+        if (langLabel) {
+            langLabel.textContent = I18N.lang === 'en' ? '中文' : 'English';
+        }
+        const langBtn = document.getElementById('langSwitchBtn');
+        if (langBtn) {
+            langBtn.addEventListener('click', function() { I18N.toggle(); });
+        }
 
         // 初始化事件监听
         initEventListeners();
@@ -625,7 +646,7 @@
         
         // 更新房间数量
         if (tableCount) {
-            tableCount.textContent = `${tables ? tables.length : 0} 个房间`;
+            tableCount.textContent = `${tables ? tables.length : 0} ${I18N.t('个房间')}`;
         }
         
         // 更新在线玩家数将由updateStats函数处理，这里不再重复计算
@@ -634,8 +655,8 @@
             tableList.innerHTML = `
                 <div class="text-center py-8 text-gray-400">
                     <div class="text-4xl mb-4">🃏</div>
-                    <p class="text-lg">暂无活跃房间</p>
-                    <p class="text-sm mt-2">创建一个新房间开始游戏吧！</p>
+                    <p class="text-lg">${I18N.t('暂无活跃房间')}</p>
+                    <p class="text-sm mt-2">${I18N.t('创建一个新房间开始游戏吧！')}</p>
                 </div>
             `;
             return;
@@ -653,16 +674,16 @@
                     class="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded-lg transition-colors ${!isMember && isFull ? 'opacity-50 cursor-not-allowed' : ''}"
                     ${!isMember && isFull ? 'disabled' : ''}
                 >
-                    ${isMember ? '🔄 进入房间' : (isFull ? '房间已满' : '加入房间')}
+                    ${isMember ? '🔄 ' + I18N.t('进入房间') : (isFull ? I18N.t('房间已满') : I18N.t('加入房间'))}
                 </button>
             `;
             const dissolveBtn = isCreator ? `
                 <button 
                     onclick="dissolveTable('${table.id}')"
                     class="bg-red-600 hover:bg-red-700 text-white py-2 px-4 rounded-lg transition-colors"
-                    title="解散房间（仅创建者）"
+                    title="${I18N.t('解散房间（仅创建者）')}"
                 >
-                    🗑️ 解散
+                    🗑️ ${I18N.t('解散')}
                 </button>
             ` : '';
             return `
@@ -670,7 +691,7 @@
                 <div class="flex justify-between items-start mb-3">
                     <div>
                         <h3 class="text-lg font-semibold text-white">${escapeHtml(table.title)}</h3>
-                        <p class="text-sm text-gray-400">创建者: ${escapeHtml(table.created_by)}${isCreator ? ' <span class="text-yellow-400">(我)</span>' : ''}</p>
+                        <p class="text-sm text-gray-400">${I18N.t('创建者: {0}', escapeHtml(table.created_by))}${isCreator ? ` <span class="text-yellow-400">${I18N.t('(我)')}</span>` : ''}</p>
                     </div>
                     <div class="text-right">
                         <span class="inline-block px-2 py-1 text-xs rounded-full ${getStageColor(table.game_stage)}">
@@ -681,15 +702,15 @@
                 
                 <div class="grid grid-cols-2 gap-4 text-sm text-gray-300 mb-4">
                     <div>
-                        <span class="text-gray-500">${table.game_mode === 'ante' ? '模式:' : '盲注:'}</span>
+                        <span class="text-gray-500">${table.game_mode === 'ante' ? I18N.t('模式:') : I18N.t('盲注:')}</span>
                         <span class="text-white">
                             ${table.game_mode === 'ante' 
-                                ? `⚖️ 按比例(${(table.ante_percentage * 100).toFixed(1)}%)` 
+                                ? `⚖️ ${I18N.t('按比例({0}%)', (table.ante_percentage * 100).toFixed(1))}` 
                                 : `🎯 $${table.small_blind}/$${table.big_blind}`}
                         </span>
                     </div>
                     <div>
-                        <span class="text-gray-500">玩家:</span>
+                        <span class="text-gray-500">${I18N.t('玩家:')}</span>
                         <span class="text-white">${table.current_players}/${table.max_players}</span>
                     </div>
                 </div>
@@ -705,12 +726,12 @@
 
     // 解散房间（仅创建者）
     function dissolveTable(tableId) {
-        if (!confirm('确定要解散这个房间吗？\n房间内所有玩家将被移出，此操作不可恢复！')) {
+        if (!confirm(I18N.t('确定要解散这个房间吗？\n房间内所有玩家将被移出，此操作不可恢复！'))) {
             return;
         }
         console.log('🗑️ 请求解散房间:', tableId);
         socket.emit('dissolve_table', { table_id: tableId });
-        showNotification('解散请求已发送...', 'info');
+        showNotification(I18N.t('解散请求已发送...'), 'info');
     }
 
     // 获取游戏阶段颜色
@@ -736,7 +757,7 @@
             'river': '河牌',
             'showdown': '摊牌'
         };
-        return texts[stage] || '未知';
+        return I18N.t(texts[stage] || '未知');
     }
 
     // HTML转义

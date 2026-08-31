@@ -8,15 +8,15 @@
         <!-- 游戏标题 -->
         <div class="text-center">
             <div class="text-6xl mb-4">🃏</div>
-            <h1 class="text-4xl font-bold text-white mb-2">德州扑克</h1>
-            <p class="text-gray-300 text-lg">本地局域网多人游戏</p>
+            <h1 class="text-4xl font-bold text-white mb-2"><span data-i18n="德州扑克">德州扑克</span></h1>
+            <p class="text-gray-300 text-lg" data-i18n="本地局域网多人游戏">本地局域网多人游戏</p>
         </div>
 
         <!-- 登录表单 -->
         <div class="bg-gray-800 rounded-xl shadow-2xl p-8 border border-gray-700">
             <div class="space-y-6">
                 <div>
-                    <label for="nickname" class="block text-sm font-medium text-gray-300 mb-2">
+                    <label for="nickname" class="block text-sm font-medium text-gray-300 mb-2" data-i18n="输入您的昵称">
                         输入您的昵称
                     </label>
                     <input 
@@ -26,9 +26,10 @@
                         maxlength="20"
                         class="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-white placeholder-gray-400"
                         placeholder="请输入昵称（1-20个字符）"
+                        data-i18n-placeholder="请输入昵称（1-20个字符）"
                         required
                     >
-                    <p class="text-xs text-gray-400 mt-1">支持中文、英文、数字和常用符号</p>
+                    <p class="text-xs text-gray-400 mt-1" data-i18n="支持中文、英文、数字和常用符号">支持中文、英文、数字和常用符号</p>
                 </div>
 
                 <button 
@@ -36,42 +37,42 @@
                     id="joinBtn"
                     class="w-full bg-blue-600 hover:bg-blue-700 focus:ring-4 focus:ring-blue-500 focus:ring-opacity-50 text-white font-semibold py-3 px-4 rounded-lg transition duration-200 ease-in-out transform hover:scale-105"
                 >
-                    进入大厅
+                    <span data-i18n="进入大厅">进入大厅</span>
                 </button>
             </div>
         </div>
 
         <!-- 游戏说明 -->
         <div class="bg-gray-800 rounded-xl p-6 border border-gray-700">
-            <h3 class="text-lg font-semibold text-white mb-4">🎮 游戏特色</h3>
+            <h3 class="text-lg font-semibold text-white mb-4">🎮 <span data-i18n="游戏特色">游戏特色</span></h3>
             <ul class="space-y-2 text-gray-300 text-sm">
                 <li class="flex items-center">
                     <span class="text-green-400 mr-2">✓</span>
-                    支持多人在线对战
+                    <span data-i18n="支持多人在线对战">支持多人在线对战</span>
                 </li>
                 <li class="flex items-center">
                     <span class="text-green-400 mr-2">✓</span>
-                    智能AI机器人陪练
+                    <span data-i18n="智能AI机器人陪练">智能AI机器人陪练</span>
                 </li>
                 <li class="flex items-center">
                     <span class="text-green-400 mr-2">✓</span>
-                    实时胜率计算工具
+                    <span data-i18n="实时胜率计算工具">实时胜率计算工具</span>
                 </li>
                 <li class="flex items-center">
                     <span class="text-green-400 mr-2">✓</span>
-                    记牌助手功能
+                    <span data-i18n="记牌助手功能">记牌助手功能</span>
                 </li>
                 <li class="flex items-center">
                     <span class="text-green-400 mr-2">✓</span>
-                    标准德州扑克规则
+                    <span data-i18n="标准德州扑克规则">标准德州扑克规则</span>
                 </li>
             </ul>
         </div>
 
         <!-- 版本信息 -->
         <div class="text-center text-gray-500 text-sm">
-            <p>Version 1.0 | 局域网专用版本</p>
-            <p class="mt-1">支持现代浏览器，推荐Chrome/Edge/Firefox</p>
+            <p data-i18n="局域网专用版本">Version 1.0 | 局域网专用版本</p>
+            <p class="mt-1" data-i18n="支持现代浏览器，推荐Chrome/Edge/Firefox">支持现代浏览器，推荐Chrome/Edge/Firefox</p>
         </div>
     </div>
 </div>
@@ -124,18 +125,18 @@
         const joinBtn = document.getElementById('joinBtn');
 
         if (!nickname) {
-            showNotification('请输入昵称', 'warning');
+            showNotification(I18N.t('请输入昵称'), 'warning');
             return;
         }
 
         if (nickname.length > 20) {
-            showNotification('昵称长度不能超过20个字符', 'warning');
+            showNotification(I18N.t('昵称长度不能超过20个字符'), 'warning');
             return;
         }
 
         // 禁用按钮，显示加载状态
         joinBtn.disabled = true;
-        joinBtn.innerHTML = '<span class="animate-spin mr-2">⚪</span>加入中...';
+        joinBtn.innerHTML = '<span class="animate-spin mr-2">⚪</span>' + I18N.t('加入中...');
 
         try {
             const response = await fetch('/api/join', {
@@ -161,7 +162,7 @@
                 localStorage.setItem('poker_player', JSON.stringify(playerInfo));
                 currentPlayer = playerInfo;
                 
-                showNotification(`欢迎，${data.player.nickname}！`, 'success');
+                showNotification(I18N.t('欢迎，{0}！', data.player.nickname), 'success');
                 
                 // 跳转到大厅
                 setTimeout(() => {
@@ -169,19 +170,19 @@
                 }, 1000);
                 
             } else {
-                showNotification(data.message || '加入失败', 'error');
+                showNotification(data.message || I18N.t('加入失败'), 'error');
                 // 恢复按钮状态
                 joinBtn.disabled = false;
-                joinBtn.innerHTML = '进入大厅';
+                joinBtn.innerHTML = I18N.t('进入大厅');
             }
 
         } catch (error) {
             console.error('Error joining game:', error);
-            showNotification('网络错误，请重试', 'error');
+            showNotification(I18N.t('网络错误，请重试'), 'error');
             
             // 恢复按钮状态
             joinBtn.disabled = false;
-            joinBtn.innerHTML = '进入大厅';
+            joinBtn.innerHTML = I18N.t('进入大厅');
         }
     }
 </script>
