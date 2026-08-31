@@ -93,19 +93,28 @@
                 
                 <!-- 下注输入 -->
                 <div id="betInputArea" class="mt-4 text-center hidden">
-                    <input 
-                        type="number" 
-                        id="betAmount" 
-                        class="bg-gray-600 text-white px-3 py-2 rounded mr-2"
-                        placeholder="输入金额"
-                        min="1"
-                    >
-                    <button id="confirmBetBtn" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded">
-                        确认
-                    </button>
-                    <button id="cancelBetBtn" class="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded">
-                        取消
-                    </button>
+                    <div class="flex flex-wrap items-center justify-center gap-3">
+                        <input 
+                            type="number" 
+                            id="betAmount" 
+                            class="bg-gray-600 text-white px-3 py-2 rounded w-32"
+                            placeholder="输入金额"
+                            min="1"
+                        >
+                        <input 
+                            type="range" 
+                            id="betSlider" 
+                            class="w-48 sm:w-56 accent-yellow-500"
+                            min="1" max="1000" step="10" value="100"
+                            title="拖动调整下注金额"
+                        >
+                        <button id="confirmBetBtn" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded">
+                            确认
+                        </button>
+                        <button id="cancelBetBtn" class="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded">
+                            取消
+                        </button>
+                    </div>
                 </div>
             </div>
 
@@ -533,6 +542,17 @@
         document.getElementById('confirmBetBtn').addEventListener('click', confirmBet);
         document.getElementById('cancelBetBtn').addEventListener('click', hideBetInput);
         
+        // 下注滑块与文本框双向联动
+        document.getElementById('betSlider').addEventListener('input', function() {
+            document.getElementById('betAmount').value = this.value;
+        });
+        document.getElementById('betAmount').addEventListener('input', function() {
+            const slider = document.getElementById('betSlider');
+            let v = parseInt(this.value) || 0;
+            v = Math.max(parseInt(slider.min) || 1, Math.min(v, parseInt(slider.max) || 1000));
+            slider.value = v;
+        });
+        
         // 下一轮投票
         document.getElementById('voteNextRoundBtn').addEventListener('click', voteNextRound);
         
@@ -738,19 +758,44 @@
         hideActionButtons();
     }
 
+    // 根据当前模式（下注/加注）同步滑块范围与初值
+    function syncBetSlider() {
+        const slider = document.getElementById('betSlider');
+        const input = document.getElementById('betAmount');
+        if (!slider || !currentTableState) return;
+        
+        const myPlayer = currentTableState.players.find(p => p.id === myPlayerId);
+        const maxBet = myPlayer ? Math.max(1, myPlayer.chips) : 1000;
+        // 加注模式：最小加注 = 当前下注 + 大盲；下注模式：最小下注 = 大盲
+        let minBet = currentTableState.current_bet > 0
+            ? currentTableState.current_bet + currentTableState.big_blind
+            : currentTableState.big_blind;
+        minBet = Math.max(1, Math.min(minBet, maxBet));
+        const step = Math.max(1, Math.floor(currentTableState.big_blind / 2));
+        
+        slider.min = minBet;
+        slider.max = maxBet;
+        slider.step = step;
+        slider.value = minBet;
+        if (!input.value) {
+            input.value = minBet;
+        }
+    }
+
     function showBetInput() {
         document.getElementById('betInputArea').classList.remove('hidden');
+        syncBetSlider();
         document.getElementById('betAmount').focus();
         document.getElementById('betAmount').placeholder = '输入下注金额';
     }
 
     function showRaiseInput() {
         document.getElementById('betInputArea').classList.remove('hidden');
+        syncBetSlider();
         document.getElementById('betAmount').focus();
         document.getElementById('betAmount').placeholder = '输入加注金额';
         // 设置最小加注额
         if (currentTableState) {
-            const myPlayer = currentTableState.players.find(p => p.id === myPlayerId);
             const minRaise = currentTableState.current_bet + currentTableState.big_blind;
             document.getElementById('betAmount').min = minRaise;
             document.getElementById('betAmount').placeholder = `最小加注: $${minRaise}`;
