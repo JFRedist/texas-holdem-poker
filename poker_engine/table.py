@@ -61,6 +61,7 @@ class Table:
         
         self.created_at = time.time()
         self.last_activity = time.time()
+        self.on_bot_action = None  # 机器人完成一次行动后的回调钩子（由app层设置，用于逐步广播）
     
     def add_player(self, player: Player) -> bool:
         """添加玩家到牌桌"""
@@ -391,10 +392,10 @@ class Table:
                 # 根据机器人等级添加思考时间延迟
                 from .bot import BotLevel
                 thinking_delays = {
-                    BotLevel.BEGINNER: 0.0,      # 初级 0秒（立即）
-                    BotLevel.INTERMEDIATE: 0.0,  # 中级 0秒（立即）  
-                    BotLevel.ADVANCED: 0.0,      # 高级 0秒（立即）
-                    BotLevel.GOD: 0.0            # 神级 0秒（立即）
+                    BotLevel.BEGINNER: 1.0,      # 初级 1秒
+                    BotLevel.INTERMEDIATE: 1.0,  # 中级 1秒
+                    BotLevel.ADVANCED: 1.0,      # 高级 1秒
+                    BotLevel.GOD: 1.0            # 神级 1秒
                 }
                 
                 delay = thinking_delays.get(player.bot_level, 0.0)
@@ -469,6 +470,13 @@ class Table:
                     player.has_acted = True
                     had_action_this_round = True
                     print(f"✅ 机器人 {player.nickname} 已完成行动")
+                    
+                    # 调用外部回调（app层据此逐步广播桌面状态）
+                    if self.on_bot_action:
+                        try:
+                            self.on_bot_action(player)
+                        except Exception as e:
+                            print(f"⚠️ 机器人行动回调失败: {e}")
                     
                 except Exception as e:
                     print(f"❌ 机器人 {player.nickname} 执行动作时出错: {e}")
@@ -615,6 +623,15 @@ class Table:
                             print(f"🤖 {player.nickname} 因错误弃牌")
                     
                     player.has_acted = True
+                    
+                    # 每个机器人决策间隔1秒（与主循环一致）
+                    time.sleep(1.0)
+                    # 调用外部回调逐步广播桌面状态
+                    if self.on_bot_action:
+                        try:
+                            self.on_bot_action(player)
+                        except Exception as e:
+                            print(f"⚠️ 机器人行动回调失败: {e}")
         
         # 返回最终的游戏流程状态
         final_flow_result = self.process_game_flow()

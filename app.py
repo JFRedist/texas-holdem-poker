@@ -72,6 +72,14 @@ def process_bot_actions(table_id: str):
         
         table = tables[table_id]
         
+        # 设置机器人逐步行动回调：每个机器人行动后立即广播桌面状态，让玩家看到节奏
+        def _bot_action_callback(player):
+            try:
+                socketio.emit('table_updated', table.get_table_state(), room=table_id)
+            except Exception as e:
+                print(f"⚠️ 机器人行动广播失败: {e}")
+        table.on_bot_action = _bot_action_callback
+        
         # 🔧 修复：如果游戏已结束，不处理机器人动作
         if table.game_stage == GameStage.FINISHED:
             print(f"🛑 游戏已结束，停止机器人处理 (table_id: {table_id})")
@@ -80,13 +88,13 @@ def process_bot_actions(table_id: str):
         # 检查是否有机器人需要行动，如果有就先通知前端
         current_player = table.get_current_player()
         if current_player and current_player.is_bot:
-            # 获取机器人等级和对应的思考时间 - 全部改为0（立即行动）
+            # 获取机器人等级和对应的思考时间 - 每个机器人决策间隔1秒
             from poker_engine.bot import BotLevel
             thinking_delays = {
-                BotLevel.BEGINNER: 0.0,      # 初级 0秒（立即）
-                BotLevel.INTERMEDIATE: 0.0,  # 中级 0秒（立即）
-                BotLevel.ADVANCED: 0.0,      # 高级 0秒（立即）
-                BotLevel.GOD: 0.0            # 德州扑克之神 0秒（立即）
+                BotLevel.BEGINNER: 1.0,      # 初级 1秒
+                BotLevel.INTERMEDIATE: 1.0,  # 中级 1秒
+                BotLevel.ADVANCED: 1.0,      # 高级 1秒
+                BotLevel.GOD: 1.0            # 德州扑克之神 1秒
             }
             delay = thinking_delays.get(current_player.bot_level, 0.0)
             
