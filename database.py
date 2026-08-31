@@ -195,6 +195,17 @@ class PokerDatabase:
                 return dict(row)
             return None
     
+    def get_player_table_ids(self, player_id: str) -> List[str]:
+        """获取玩家当前所在的所有活跃房间ID（用于大厅判断'进入房间'而非'加入房间'）"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT tp.table_id FROM table_players tp
+                INNER JOIN tables t ON tp.table_id = t.id
+                WHERE tp.player_id = ? AND t.is_active = 1
+            ''', (player_id,))
+            return [row['table_id'] for row in cursor.fetchall()]
+
     def get_all_active_tables(self) -> List[Dict]:
         """获取所有活跃房间"""
         with self.get_connection() as conn:

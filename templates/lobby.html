@@ -582,9 +582,10 @@
     // 加载房间列表和统计信息
     async function loadTableList() {
         try {
-            // 同时获取房间列表和统计信息
+            // 同时获取房间列表和统计信息（带上玩家ID以判断是否为房间成员）
+            const playerId = currentPlayer ? currentPlayer.id : '';
             const [tablesResponse, statsResponse] = await Promise.all([
-                fetch('/api/tables'),
+                fetch(`/api/tables?player_id=${encodeURIComponent(playerId)}`),
                 fetch('/api/stats')
             ]);
             
@@ -643,13 +644,16 @@
         tableList.innerHTML = tables.map(table => {
             // 仅创建者显示解散按钮
             const isCreator = currentPlayer && table.created_by_id === currentPlayer.id;
+            // 是否已是房间成员（成员可随时"进入房间"，即使房间已满）
+            const isMember = !!table.is_member;
+            const isFull = table.current_players >= table.max_players;
             const joinBtn = `
                 <button 
-                    onclick="joinTable('${table.id}')"
-                    class="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded-lg transition-colors ${table.current_players >= table.max_players ? 'opacity-50 cursor-not-allowed' : ''}"
-                    ${table.current_players >= table.max_players ? 'disabled' : ''}
+                    onclick="joinTable('${table.id}', ${isMember})"
+                    class="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded-lg transition-colors ${!isMember && isFull ? 'opacity-50 cursor-not-allowed' : ''}"
+                    ${!isMember && isFull ? 'disabled' : ''}
                 >
-                    ${table.current_players >= table.max_players ? '房间已满' : '加入房间'}
+                    ${isMember ? '🔄 进入房间' : (isFull ? '房间已满' : '加入房间')}
                 </button>
             `;
             const dissolveBtn = isCreator ? `
@@ -743,7 +747,24 @@
     }
 
     // 加入房间（带选座弹窗）
-    function joinTable(tableId) {
+    function joinTable(tableId, isMember = false) {
+        // 已是房间成员：直接重连进入，无需选座（满员房间也能回到自己的座位）
+        if (isMember) {
+            console.log('🔄 已是房间成员，直接进入:', tableId);
+            socket.emit('join_table', { table_id: tableId });
+            socket.once('table_joined', function(data) {
+                if (data.success) {
+                    location.href = `/table/${tableId}`;
+                } else {
+                    showNotification(data.message || '进入房间失败', 'error');
+                }
+            });
+            socket.once('error', function(data) {
+                showNotification(data.message || '进入房间失败', 'error');
+            });
+            return;
+        }
+        
         // 先获取当前房间玩家信息
         fetch(`/api/table_players?table_id=${tableId}`)
             .then(r => r.json())
