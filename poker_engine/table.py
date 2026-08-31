@@ -432,8 +432,19 @@ class Table:
                         player.fold()
                         print(f"🤖 {player.nickname} 弃牌")
                     elif action_type == PlayerAction.CHECK:
-                        player.check()
-                        print(f"🤖 {player.nickname} 过牌")
+                        # 防御：欠注时不能过牌（否则该玩家会永远"需要行动"导致游戏卡死）
+                        call_amount = self.current_bet - player.current_bet
+                        if call_amount > 0:
+                            if call_amount <= player.chips:
+                                actual_amount = player.call(self.current_bet)
+                                self.pot += actual_amount
+                                print(f"🤖 {player.nickname} 欠注不能过牌，改为跟注 ${actual_amount}")
+                            else:
+                                player.fold()
+                                print(f"🤖 {player.nickname} 欠注且无法跟注，改为弃牌")
+                        else:
+                            player.check()
+                            print(f"🤖 {player.nickname} 过牌")
                     elif action_type == PlayerAction.CALL:
                         call_amount = self.current_bet - player.current_bet
                         if call_amount > 0:
@@ -586,8 +597,19 @@ class Table:
                                 player.fold()
                                 print(f"🤖 {player.nickname} 弃牌")
                             elif action_type == PlayerAction.CHECK:
-                                player.check()
-                                print(f"🤖 {player.nickname} 过牌")
+                                # 防御：欠注时不能过牌（否则该玩家会永远"需要行动"导致游戏卡死）
+                                call_amount = self.current_bet - player.current_bet
+                                if call_amount > 0:
+                                    if call_amount <= player.chips:
+                                        actual_amount = player.call(self.current_bet)
+                                        self.pot += actual_amount
+                                        print(f"🤖 {player.nickname} 欠注不能过牌，改为跟注 ${actual_amount}")
+                                    else:
+                                        player.fold()
+                                        print(f"🤖 {player.nickname} 欠注且无法跟注，改为弃牌")
+                                else:
+                                    player.check()
+                                    print(f"🤖 {player.nickname} 过牌")
                             elif action_type == PlayerAction.CALL:
                                 call_amount = self.current_bet - player.current_bet
                                 if call_amount > 0:
@@ -598,40 +620,48 @@ class Table:
                                     player.check()
                                     print(f"🤖 {player.nickname} 过牌（无需跟注）")
                             elif action_type == PlayerAction.BET:
-                                if amount > 0 and amount <= player.chips:
-                                    actual_amount = player.place_bet(amount)
-                                    self.current_bet = player.current_bet
-                                    self.pot += actual_amount
-                                    print(f"🤖 {player.nickname} 下注 ${actual_amount}")
-                                else:
-                                    player.check()
-                                    print(f"🤖 {player.nickname} 下注无效，改为过牌")
-                            elif action_type == PlayerAction.RAISE:
-                                raise_amount = amount - player.current_bet
-                                if raise_amount > 0 and raise_amount <= player.chips:
-                                    actual_amount = player.place_bet(raise_amount)
-                                    self.current_bet = player.current_bet
-                                    self.pot += actual_amount
-                                    print(f"🤖 {player.nickname} 加注到 ${amount}")
-                                else:
-                                    # 尝试跟注
-                                    call_amount = self.current_bet - player.current_bet
-                                    if call_amount > 0 and call_amount <= player.chips:
+                                # 防御：补充处理不允许改变下注额（否则已行动玩家会突然欠注导致游戏卡死）
+                                # 降级为跟注补齐或过牌
+                                call_amount = self.current_bet - player.current_bet
+                                if call_amount > 0:
+                                    if call_amount <= player.chips:
                                         actual_amount = player.call(self.current_bet)
                                         self.pot += actual_amount
-                                        print(f"🤖 {player.nickname} 加注无效，改为跟注 ${actual_amount}")
+                                        print(f"🤖 {player.nickname} 补充处理仅跟注 ${actual_amount}")
                                     else:
-                                        player.check()
-                                        print(f"🤖 {player.nickname} 加注无效，改为过牌")
-                            elif action_type == PlayerAction.ALL_IN:
-                                if player.chips > 0:
-                                    actual_amount = player.place_bet(player.chips)
-                                    self.current_bet = max(self.current_bet, player.current_bet)
-                                    self.pot += actual_amount
-                                    print(f"🤖 {player.nickname} 全下 ${actual_amount}")
+                                        player.fold()
+                                        print(f"🤖 {player.nickname} 无法跟注，弃牌")
                                 else:
                                     player.check()
-                                    print(f"🤖 {player.nickname} 无筹码全下，改为过牌")
+                                    print(f"🤖 {player.nickname} 过牌")
+                            elif action_type == PlayerAction.RAISE:
+                                # 防御：补充处理不允许加注（原因同上），降级为跟注补齐
+                                call_amount = self.current_bet - player.current_bet
+                                if call_amount > 0:
+                                    if call_amount <= player.chips:
+                                        actual_amount = player.call(self.current_bet)
+                                        self.pot += actual_amount
+                                        print(f"🤖 {player.nickname} 补充处理仅跟注 ${actual_amount}")
+                                    else:
+                                        player.fold()
+                                        print(f"🤖 {player.nickname} 无法跟注，弃牌")
+                                else:
+                                    player.check()
+                                    print(f"🤖 {player.nickname} 过牌")
+                            elif action_type == PlayerAction.ALL_IN:
+                                # 防御：补充处理不允许全下改变下注额，降级为跟注补齐
+                                call_amount = self.current_bet - player.current_bet
+                                if call_amount > 0:
+                                    if call_amount <= player.chips:
+                                        actual_amount = player.call(self.current_bet)
+                                        self.pot += actual_amount
+                                        print(f"🤖 {player.nickname} 补充处理仅跟注 ${actual_amount}")
+                                    else:
+                                        player.fold()
+                                        print(f"🤖 {player.nickname} 无法跟注，弃牌")
+                                else:
+                                    player.check()
+                                    print(f"🤖 {player.nickname} 过牌")
                         except Exception as e:
                             print(f"❌ 执行机器人动作失败: {e}")
                             player.fold()

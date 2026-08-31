@@ -1184,23 +1184,34 @@ def handle_join_table(data):
                         # 重新创建机器人
                         from poker_engine.bot import Bot, BotLevel
                         try:
-                            # 从nickname推断机器人等级
+                            # 优先使用数据库中的机器人等级（创建/添加时已正确记录 bot_level）
                             print(f"🔄 重新创建机器人: {db_player['nickname']}")
-                            if '新手' in db_player['nickname'] or '菜鸟' in db_player['nickname'] or '学徒' in db_player['nickname']:
-                                level = BotLevel.BEGINNER
-                                print(f"  - 检测为初级机器人")
-                            elif '老司机' in db_player['nickname'] or '高手' in db_player['nickname'] or '大神' in db_player['nickname']:
-                                level = BotLevel.INTERMEDIATE
-                                print(f"  - 检测为中级机器人")
-                            elif '大师' in db_player['nickname'] or '传奇' in db_player['nickname'] or '王者' in db_player['nickname']:
-                                level = BotLevel.ADVANCED
-                                print(f"  - 检测为高级机器人")
-                            elif '德州之神' in db_player['nickname'] or '扑克天神' in db_player['nickname'] or '全知全能' in db_player['nickname'] or '透视眼' in db_player['nickname'] or '作弊之王' in db_player['nickname']:
-                                level = BotLevel.GOD
-                                print(f"  - 检测为德州扑克之神机器人")
+                            db_level = db_player.get('bot_level')
+                            if db_level:
+                                try:
+                                    level = BotLevel[db_level.upper()]
+                                    print(f"  - 使用数据库等级: {db_level}")
+                                except KeyError:
+                                    level = BotLevel.BEGINNER
+                                    print(f"  - 数据库等级无效({db_level})，默认为初级机器人")
                             else:
-                                level = BotLevel.BEGINNER
-                                print(f"  - 未匹配，默认为初级机器人")
+                                # 旧数据兜底：从nickname推断机器人等级
+                                print(f"  - 数据库无等级记录，从昵称推断")
+                                if '新手' in db_player['nickname'] or '菜鸟' in db_player['nickname'] or '学徒' in db_player['nickname'] or '小白' in db_player['nickname'] or '萌新' in db_player['nickname']:
+                                    level = BotLevel.BEGINNER
+                                    print(f"  - 检测为初级机器人")
+                                elif '老司机' in db_player['nickname'] or '高手' in db_player['nickname'] or '大神' in db_player['nickname'] or '专家' in db_player['nickname'] or '老手' in db_player['nickname']:
+                                    level = BotLevel.INTERMEDIATE
+                                    print(f"  - 检测为中级机器人")
+                                elif '大师' in db_player['nickname'] or '传奇' in db_player['nickname'] or '王者' in db_player['nickname'] or '至尊' in db_player['nickname'] or '无敌' in db_player['nickname']:
+                                    level = BotLevel.ADVANCED
+                                    print(f"  - 检测为高级机器人")
+                                elif '德州之神' in db_player['nickname'] or '扑克天神' in db_player['nickname'] or '全知全能' in db_player['nickname'] or '透视眼' in db_player['nickname'] or '作弊之王' in db_player['nickname']:
+                                    level = BotLevel.GOD
+                                    print(f"  - 检测为德州扑克之神机器人")
+                                else:
+                                    level = BotLevel.BEGINNER
+                                    print(f"  - 未匹配，默认为初级机器人")
                             
                             bot = Bot(db_player['player_id'], db_player['nickname'], db_player['chips'], level)
                             bot.current_bet = db_player['current_bet']
