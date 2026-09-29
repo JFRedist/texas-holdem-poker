@@ -394,6 +394,39 @@ class Table:
             return done(PlayerAction.BET, added, f"下注 ${amount}")
         return done(PlayerAction.RAISE, added, f"加注到 ${amount}")
 
+    def _position_of(self, player: Player) -> str:
+        """翻牌后的相对位置：越晚行动越有利。庄家与关煞位为 late，最先行动的约三分之一为 early"""
+        order = [p for p in self._participants() if p.status in (PlayerStatus.PLAYING, PlayerStatus.ALL_IN)]
+        if player not in order or len(order) <= 2:
+            return 'late' if player.is_dealer else 'early'
+        dealer_idx = next((i for i, p in enumerate(self._participants()) if p.is_dealer), 0)
+        seats = self._participants()
+        # 从庄家下一位开始排列的行动顺序
+        acting = [seats[(dealer_idx + 1 + i) % len(seats)] for i in range(len(seats))]
+        acting = [p for p in acting if p in order]
+        frac = acting.index(player) / (len(acting) - 1)
+        return 'late' if frac >= 0.67 else ('early' if frac <= 0.34 else 'middle')
+    
+    def _bot_game_state(self, player: Player) -> Dict:
+        """机器人决策所需的牌局信息"""
+        contenders = [p for p in self.players if p.status in (PlayerStatus.PLAYING, PlayerStatus.ALL_IN)]
+        return {
+            'community_cards': self.community_cards,
+            'stage': self.game_stage.value,
+            'current_bet': self.current_bet,
+            'to_call': max(0, self.current_bet - player.current_bet),
+            'big_blind': self.big_blind,
+            'pot_size': self.pot,
+            'min_bet': self.min_bet(),
+            'min_raise_to': self.min_raise_to(),
+            'min_raise': self.min_raise,
+            # 仍在牌局中的人数（含已全下者），对手数 = 该值 - 1
+            'active_players': len(contenders),
+            'num_opponents': max(1, len(contenders) - 1),
+            'position': self._position_of(player),
+            'all_players': self.players  # 德州扑克之神可以看到所有玩家的底牌
+        }
+    
     def process_bot_actions(self):
         """处理机器人动作 - 持续处理直到轮到人类玩家或游戏结束"""
         from .bot import Bot
@@ -471,16 +504,7 @@ class Table:
                 continue
             
             # 构建游戏状态
-            game_state = {
-                'community_cards': self.community_cards,
-                'current_bet': self.current_bet,
-                'big_blind': self.big_blind,
-                'pot_size': self.pot,
-                'active_players': len([p for p in self.players if p.status == PlayerStatus.PLAYING]),
-                'position': 'middle',  # 简化，可以后续改进位置判断
-                'min_raise': self.min_raise,
-                'all_players': self.players  # 为GOD级别机器人提供所有玩家信息
-            }
+            game_state = self._bot_game_state(player)
             
             # 机器人决策 - 添加异常处理
             action = None
@@ -610,16 +634,7 @@ class Table:
                     print(f"🔧 补充处理机器人 {player.nickname}")
                     
                     # 构建游戏状态，让机器人正常决策
-                    game_state = {
-                        'community_cards': self.community_cards,
-                        'current_bet': self.current_bet,
-                        'big_blind': self.big_blind,
-                        'pot_size': self.pot,
-                        'active_players': len([p for p in self.players if p.status == PlayerStatus.PLAYING]),
-                        'position': 'middle',
-                        'min_raise': self.min_raise,
-                        'all_players': self.players
-                    }
+                    game_state = self._bot_game_state(player)
                     
                     # 让机器人正常决策
                     action = None

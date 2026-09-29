@@ -203,4 +203,13 @@ act(t, A.ALL_IN); act(t, A.CALL); act(t, A.CALL); act(t, A.BET, 300); act(t, A.C
 while t.game_stage != GameStage.FINISHED:
     act(t, A.CHECK)
 check('恢复后的牌局边池结算正确', ps[0].chips == 300 and total(ps) == before, [p.chips for p in ps])
+
+# 11. 机器人看到的位置：6 人桌庄家为 late，庄家后第一位为 early
+t, ps = make([1000] * 6)
+with quiet(): t.start_new_hand()
+dealer = next(p for p in ps if p.is_dealer)
+first = t.hand_players[(t.hand_players.index(dealer) + 1) % 6]
+check('位置：庄家 late、庄家下一位 early', t._position_of(dealer) == 'late' and t._position_of(first) == 'early')
+gs = t._bot_game_state(t.get_current_player())
+check('机器人牌局信息包含需跟注额与最小加注', gs['to_call'] == 20 and gs['min_raise_to'] == 40 and gs['num_opponents'] == 5)
 print('\n全部通过' if not fails else f'\n失败 {len(fails)} 项: {fails}')

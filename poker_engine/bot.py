@@ -95,6 +95,27 @@ class Bot(Player):
             print(f"🤖 {self.nickname} 决策异常: {e}，使用兜底策略")
             return self._fallback_strategy(game_state)
     
+    def _bet(self, game_state: Dict, amount: int) -> Tuple[PlayerAction, int]:
+        """无需跟注时主动下注 amount（不低于最小下注，超过筹码则全下）"""
+        if game_state.get('current_bet', 0) > 0:
+            # 桌上已有下注但自己已跟平（如翻牌前大盲的选择权）：主动下注即加注
+            return self._raise(game_state, amount)
+        amount = max(int(amount), game_state.get('min_bet', game_state.get('big_blind', 20)))
+        if amount >= self.chips:
+            return PlayerAction.ALL_IN, self.chips
+        return PlayerAction.BET, amount
+
+    def _raise(self, game_state: Dict, raise_by: int) -> Tuple[PlayerAction, int]:
+        """
+        在当前下注基础上加注 raise_by。返回的金额是「加注到」的总额（牌桌的约定），
+        不低于最小加注，筹码不够时全下
+        """
+        current_bet = game_state.get('current_bet', 0)
+        raise_to = max(current_bet + int(raise_by), game_state.get('min_raise_to', current_bet * 2))
+        if raise_to - self.current_bet >= self.chips:
+            return PlayerAction.ALL_IN, self.chips
+        return PlayerAction.RAISE, raise_to
+
     def _fallback_strategy(self, game_state: Dict) -> Tuple[PlayerAction, int]:
         """兜底策略：确保总是返回有效动作"""
         current_bet = game_state.get('current_bet', 0)
@@ -128,7 +149,7 @@ class Bot(Player):
             
         community_cards = game_state.get('community_cards', [])
         current_bet = game_state.get('current_bet', 0)
-        min_raise = game_state.get('min_raise', current_bet * 2)
+        big_blind = game_state.get('big_blind', 20)
         pot_size = game_state.get('pot_size', 0)
         
         # 评估手牌强度
@@ -142,9 +163,8 @@ class Bot(Player):
         
         # 无需跟注的情况
         if call_amount == 0:
-            if hand_strength > 0.7:  # 强牌才下注
-                bet_amount = min(min_raise, self.chips)
-                return PlayerAction.BET, bet_amount
+            if hand_strength > 0.7:  # 强牌才下注（新手下注尺度小：最小下注）
+                return self._bet(game_state, big_blind)
             else:
                 return PlayerAction.CHECK, 0
         
@@ -179,12 +199,8 @@ class Bot(Player):
                 return PlayerAction.FOLD, 0
         else:
             # 强牌：跟注或加注
-            if random.random() < 0.4:  # 40% 加注
-                raise_amount = min(min_raise, self.chips)
-                if raise_amount > call_amount:
-                    return PlayerAction.RAISE, raise_amount
-                else:
-                    return PlayerAction.CALL, call_amount
+            if random.random() < 0.4:  # 40% 最小加注
+                return self._raise(game_state, 0)
             else:
                 return PlayerAction.CALL, call_amount
     
@@ -199,9 +215,9 @@ class Bot(Player):
         current_bet = game_state.get('current_bet', 0)
         big_blind = game_state.get('big_blind', 20)
         pot_size = game_state.get('pot_size', 0)
-        num_opponents = max(1, game_state.get('active_players', 2) - 1)
+        num_opponents = game_state.get('num_opponents', max(1, game_state.get('active_players', 2) - 1))
         position = game_state.get('position', 'middle')
-        
+
         # 改进的胜率计算
         if len(community_cards) >= 3:
             win_probability = self._improved_monte_carlo(community_cards, num_opponents, 1000)
@@ -219,14 +235,10 @@ class Bot(Player):
         if call_amount == 0:
             if adjusted_win_prob > 0.65:
                 # 价值下注
-                bet_size = self._calculate_bet_size(pot_size, adjusted_win_prob, 'value')
-                bet_amount = min(bet_size, self.chips)
-                return PlayerAction.BET, bet_amount
+                return self._bet(game_state, self._calculate_bet_size(pot_size, adjusted_win_prob, 'value'))
             elif adjusted_win_prob > 0.25 and random.random() < 0.15:
                 # 小概率诈唬
-                bluff_size = self._calculate_bet_size(pot_size, adjusted_win_prob, 'bluff')
-                bet_amount = min(bluff_size, self.chips)
-                return PlayerAction.BET, bet_amount
+                return self._bet(game_state, self._calculate_bet_size(pot_size, adjusted_win_prob, 'bluff'))
             else:
                 return PlayerAction.CHECK, 0
         
@@ -244,19 +256,12 @@ class Bot(Player):
         # 决策逻辑
         if adjusted_win_prob > pot_odds + 0.1:
             if adjusted_win_prob > 0.75:
-                # 强牌大幅加注
-                raise_size = self._calculate_bet_size(pot_size + call_amount, adjusted_win_prob, 'value')
-                total_bet = call_amount + raise_size
-                if total_bet <= self.chips:
-                    return PlayerAction.RAISE, total_bet
-                else:
-                    return PlayerAction.CALL, call_amount
+                # 强牌大幅加注：加注幅度按跟注后的底池计算
+                return self._raise(game_state, self._calculate_bet_size(pot_size + call_amount, adjusted_win_prob, 'value'))
             elif adjusted_win_prob > 0.55:
-                # 中等牌小幅加注或跟注
-                if random.random() < 0.4:
-                    raise_size = min(int(1.5 * big_blind), self.chips - call_amount)
-                    if raise_size > 0:
-                        return PlayerAction.RAISE, call_amount + raise_size
+                # 中等牌小幅（最小）加注或跟注
+                if random.random() < 0.4 and self.chips > call_amount:
+                    return self._raise(game_state, 0)
                 return PlayerAction.CALL, call_amount
             else:
                 return PlayerAction.CALL, call_amount
@@ -280,7 +285,7 @@ class Bot(Player):
         current_bet = game_state.get('current_bet', 0)
         big_blind = game_state.get('big_blind', 20)
         pot_size = game_state.get('pot_size', 0)
-        num_opponents = max(1, game_state.get('active_players', 2) - 1)
+        num_opponents = game_state.get('num_opponents', max(1, game_state.get('active_players', 2) - 1))
         position = game_state.get('position', 'middle')
         betting_round = len(community_cards)
         stack_to_pot_ratio = self.chips / max(pot_size, big_blind)
@@ -312,15 +317,12 @@ class Bot(Player):
         # 无需跟注的情况
         if call_amount == 0:
             if should_bluff:
-                bluff_size = self._calculate_optimal_bet_size(pot_size, 'bluff', position)
-                return PlayerAction.BET, min(bluff_size, self.chips)
+                return self._bet(game_state, self._calculate_optimal_bet_size(pot_size, 'bluff', position))
             elif adjusted_win_prob * position_factor > 0.6:
-                value_size = self._calculate_optimal_bet_size(pot_size, 'value', position)
-                return PlayerAction.BET, min(value_size, self.chips)
+                return self._bet(game_state, self._calculate_optimal_bet_size(pot_size, 'value', position))
             elif adjusted_win_prob > 0.3 and random.random() < 0.2:
                 # 小频率的阻挡下注
-                blocking_bet = min(int(0.3 * pot_size), self.chips)
-                return PlayerAction.BET, blocking_bet
+                return self._bet(game_state, int(0.3 * pot_size))
             else:
                 return PlayerAction.CHECK, 0
         
@@ -342,30 +344,19 @@ class Bot(Player):
         if should_bluff:
             # 诈唬策略
             if random.random() < 0.6:  # 60% 加注诈唬
-                bluff_raise = self._calculate_optimal_bet_size(pot_size + call_amount, 'bluff', position)
-                total_bet = call_amount + bluff_raise
-                if total_bet <= self.chips:
-                    return PlayerAction.RAISE, total_bet
+                return self._raise(game_state, self._calculate_optimal_bet_size(pot_size + call_amount, 'bluff', position))
             return PlayerAction.CALL, call_amount
         
         # 价值策略
         if adjusted_win_prob * position_factor * stack_factor > pot_odds + 0.15:
             if adjusted_win_prob > 0.8:
                 # 坚果牌，大幅加注
-                value_raise = self._calculate_optimal_bet_size(pot_size + call_amount, 'nuts', position)
-                total_bet = call_amount + value_raise
-                if total_bet <= self.chips:
-                    return PlayerAction.RAISE, total_bet
-                else:
-                    return PlayerAction.CALL, call_amount
+                return self._raise(game_state, self._calculate_optimal_bet_size(pot_size + call_amount, 'nuts', position))
             elif adjusted_win_prob > 0.65:
                 # 强牌，适度加注
-                value_raise = self._calculate_optimal_bet_size(pot_size + call_amount, 'value', position)
-                total_bet = call_amount + value_raise
-                if total_bet <= self.chips and random.random() < 0.7:
-                    return PlayerAction.RAISE, total_bet
-                else:
-                    return PlayerAction.CALL, call_amount
+                if random.random() < 0.7:
+                    return self._raise(game_state, self._calculate_optimal_bet_size(pot_size + call_amount, 'value', position))
+                return PlayerAction.CALL, call_amount
             else:
                 return PlayerAction.CALL, call_amount
         elif adjusted_win_prob * position_factor > pot_odds:
