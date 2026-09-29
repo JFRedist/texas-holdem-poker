@@ -662,127 +662,52 @@ class Bot(Player):
     
     def _god_strategy(self, game_state: Dict) -> Tuple[PlayerAction, int]:
         """
-        德州扑克之神策略：能看到所有玩家手牌，做出完美决策
+        德州扑克之神：能看到所有玩家的底牌。
+        对所有仍在牌局中的对手（含已全下者）计算精确胜率（翻牌后穷举剩余公共牌，翻牌前抽样），
+        弃牌玩家的底牌作为死牌排除，再按胜率与底池赔率决策。
         """
         if self.chips <= 0:
             return PlayerAction.FOLD, 0
-        
+
         community_cards = game_state.get('community_cards', [])
-        current_bet = game_state.get('current_bet', 0)
-        big_blind = game_state.get('big_blind', 20)
         pot_size = game_state.get('pot_size', 0)
+        big_blind = game_state.get('big_blind', 20)
+        call_amount = game_state.get('to_call', max(0, game_state.get('current_bet', 0) - self.current_bet))
         all_players = game_state.get('all_players', [])
-        active_players = [p for p in all_players if p.status.value == 'playing' and p.id != self.id]
-        
-        print(f"🔮 德州扑克之神 {self.nickname} 开始分析...")
-        print(f"  - 我的手牌: {[f'{c.rank.symbol}{c.suit.value}' for c in self.hole_cards]}")
-        
-        # 🔮 上帝视角：分析所有玩家手牌
-        if len(community_cards) >= 3:
-            # 计算所有玩家的真实手牌强度
-            all_hand_strengths = {}
-            for player in active_players:
-                if hasattr(player, 'hole_cards') and player.hole_cards:
-                    hand_rank, _ = HandEvaluator.evaluate_hand(player.hole_cards, community_cards)
-                    all_hand_strengths[player.id] = hand_rank.rank_value
-                    print(f"  - {player.nickname}: {[f'{c.rank.symbol}{c.suit.value}' for c in player.hole_cards]} = {hand_rank.name}")
-            
-            # 计算我的手牌强度
-            my_hand_rank, _ = HandEvaluator.evaluate_hand(self.hole_cards, community_cards)
-            my_strength = my_hand_rank.rank_value
-            print(f"  - 我的牌力: {my_hand_rank.name} (强度: {my_strength})")
-            
-            # 判断我是否有最强手牌
-            stronger_opponents = [s for s in all_hand_strengths.values() if s > my_strength]
-            equal_opponents = [s for s in all_hand_strengths.values() if s == my_strength]
-            
-            if len(stronger_opponents) == 0:
-                # 我有最强手牌 - 坚果牌
-                win_probability = 1.0
-                print(f"  - 🏆 上帝判断: 我有坚果牌!")
-            elif len(stronger_opponents) == 1 and len(equal_opponents) == 0:
-                # 我是第二强
-                win_probability = 0.05
-                print(f"  - 🥈 上帝判断: 我是第二强，但会输")
-            else:
-                # 我比较弱
-                win_probability = 0.0
-                print(f"  - 💀 上帝判断: 我的牌很弱")
-        else:
-            # Pre-flop: 使用高级策略但略微激进
-            win_probability = self._advanced_preflop_strategy(len(active_players), 'late')
-            win_probability = min(0.95, win_probability * 1.1)  # 稍微提升自信
-            print(f"  - 🔮 Pre-flop上帝判断: 胜率 {win_probability:.2f}")
-        
-        call_amount = current_bet - self.current_bet
-        
-        # 🎯 上帝级决策逻辑
+
+        opponents = [p for p in all_players if p.id != self.id and len(p.hole_cards) == 2
+                     and p.status in (PlayerStatus.PLAYING, PlayerStatus.ALL_IN)]
+        folded = [c for p in all_players if p.id != self.id and p.status == PlayerStatus.FOLDED for c in p.hole_cards]
+        if not opponents:
+            return (PlayerAction.CHECK, 0) if call_amount == 0 else (PlayerAction.CALL, call_amount)
+
+        equity = equity_vs_known(self.hole_cards, [p.hole_cards for p in opponents], community_cards,
+                                 dead_cards=folded)
+        # 还能继续下注的对手（已全下的对手不会再跟注，对他们下注没有意义）
+        can_respond = [p for p in opponents if p.status == PlayerStatus.PLAYING and p.chips > 0]
+        print(f"🔮 德州扑克之神 {self.nickname}: 对 {len(opponents)} 名对手的真实胜率 {equity:.1%}")
+
         if call_amount == 0:
-            # 无需跟注
-            if win_probability >= 0.8:
-                # 坚果牌 - 大幅下注价值最大化
-                bet_amount = min(int(pot_size * 1.2), self.chips)
-                print(f"  - 🚀 上帝决策: 坚果牌大注榨取价值 ${bet_amount}")
-                return PlayerAction.BET, bet_amount
-            elif win_probability >= 0.6:
-                # 强牌 - 中等下注
-                bet_amount = min(int(pot_size * 0.8), self.chips)
-                print(f"  - 💪 上帝决策: 强牌价值下注 ${bet_amount}")
-                return PlayerAction.BET, bet_amount
-            elif win_probability <= 0.1:
-                # 垃圾牌 - 随机诈唬
-                if random.random() < 0.15:  # 15%诈唬频率
-                    bluff_amount = min(int(pot_size * 0.6), self.chips)
-                    print(f"  - 🎭 上帝决策: 完美诈唬 ${bluff_amount}")
-                    return PlayerAction.BET, bluff_amount
-                else:
-                    print(f"  - ✅ 上帝决策: 过牌等待")
-                    return PlayerAction.CHECK, 0
-            else:
-                print(f"  - ✅ 上帝决策: 中等牌力过牌")
+            if not can_respond:
                 return PlayerAction.CHECK, 0
-        
-        # 需要跟注的情况
+            if equity >= 0.8:
+                return self._bet(game_state, pot_size)              # 大幅领先：满池下注榨取价值
+            if equity >= 0.6:
+                return self._bet(game_state, pot_size * 0.6)        # 领先：中等下注
+            if len(community_cards) >= 4 and equity < 0.25 and random.random() < 0.2:
+                # 转牌/河牌落后时偶尔诈唬，让对手无法通过「下注=领先」读牌
+                return self._bet(game_state, pot_size * 0.6)
+            return PlayerAction.CHECK, 0
+
+        pot_odds = call_amount / (pot_size + call_amount)
         if call_amount >= self.chips:
-            # 全下场景
-            if win_probability >= 0.7:
-                print(f"  - 🎯 上帝决策: 强牌全下")
-                return PlayerAction.ALL_IN, self.chips
-            else:
-                print(f"  - 🛑 上帝决策: 不值得全下，弃牌")
-                return PlayerAction.FOLD, 0
-        
-        # 正常跟注场景
-        pot_odds = call_amount / (pot_size + call_amount) if (pot_size + call_amount) > 0 else 1
-        
-        if win_probability >= 0.8:
-            # 坚果牌 - 加注榨取价值
-            raise_amount = min(int(pot_size * 1.0), self.chips - call_amount)
-            if raise_amount >= big_blind:
-                total_bet = call_amount + raise_amount
-                print(f"  - 🔥 上帝决策: 坚果牌加注 ${total_bet}")
-                return PlayerAction.RAISE, total_bet
-            else:
-                print(f"  - 💰 上帝决策: 跟注待宰")
-                return PlayerAction.CALL, call_amount
-        elif win_probability >= 0.5:
-            # 强牌 - 跟注或小加注
-            if random.random() < 0.6:  # 60%概率加注
-                raise_amount = min(int(big_blind * 2), self.chips - call_amount)
-                if raise_amount >= big_blind // 2:
-                    total_bet = call_amount + raise_amount
-                    print(f"  - 📈 上帝决策: 强牌小加注 ${total_bet}")
-                    return PlayerAction.RAISE, total_bet
-            print(f"  - 👍 上帝决策: 强牌跟注")
-            return PlayerAction.CALL, call_amount
-        elif win_probability > pot_odds + 0.05:
-            # 有利可图的跟注
-            print(f"  - 🎯 上帝决策: 赔率合适跟注")
-            return PlayerAction.CALL, call_amount
-        else:
-            # 不值得继续
-            print(f"  - 👋 上帝决策: 弃牌等下一手")
-            return PlayerAction.FOLD, 0
+            # 跟注即全下：胜率高于赔率就跟
+            return (PlayerAction.ALL_IN, self.chips) if equity > pot_odds else (PlayerAction.FOLD, 0)
+        if equity >= 0.75 and can_respond:
+            return self._raise(game_state, pot_size + call_amount)  # 大幅领先：加注一个底池
+        if equity > pot_odds:
+            return PlayerAction.CALL, call_amount                    # 赔率合适：跟注
+        return PlayerAction.FOLD, 0
 
     def to_dict(self, include_hole_cards: bool = False) -> dict:
         """扩展父类方法，增加机器人特有信息"""

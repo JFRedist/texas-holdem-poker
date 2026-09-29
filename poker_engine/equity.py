@@ -144,9 +144,11 @@ def equity_vs_random(hole: Sequence[Card], board: Sequence[Card], num_opponents:
 
 
 def equity_vs_known(hole: Sequence[Card], opponent_holes: Sequence[Sequence[Card]], board: Sequence[Card],
-                    max_boards: int = 2000, rng: Optional[random.Random] = None) -> float:
+                    max_boards: int = 2000, rng: Optional[random.Random] = None,
+                    dead_cards: Sequence[Card] = ()) -> float:
     """
     已知所有对手底牌时的胜率。剩余公共牌组合不超过 max_boards 时穷举（翻牌后），否则随机抽样（翻牌前）。
+    dead_cards：已知不会再出现的牌（如弃牌玩家的底牌）。
     """
     rng = rng or random
     my_cards = cards_to_ints(hole)
@@ -154,7 +156,7 @@ def equity_vs_known(hole: Sequence[Card], opponent_holes: Sequence[Sequence[Card
     if not opp_cards:
         return 1.0
     board_ints = cards_to_ints(board)
-    deck = _remaining_deck(my_cards + board_ints + [c for h in opp_cards for c in h])
+    deck = _remaining_deck(my_cards + board_ints + [c for h in opp_cards for c in h] + cards_to_ints(dead_cards))
     need = 5 - len(board_ints)
 
     if need == 0:
