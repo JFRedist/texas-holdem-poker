@@ -1,6 +1,6 @@
 # 更新日志 / Changelog
 
-本文件记录 Fork 仓库 [ZiFeng666/texas-holdem-poker](https://github.com/ZiFeng666/texas-holdem-poker) 相对上游 [stars1210JasonHe/texas-holdem-poker](https://github.com/stars1210JasonHe/texas-holdem-poker) 的改动。
+本文件记录 Fork 仓库 [JFRedist/texas-holdem-poker](https://github.com/JFRedist/texas-holdem-poker) 相对上游 [stars1210JasonHe/texas-holdem-poker](https://github.com/stars1210JasonHe/texas-holdem-poker) 的改动。
 
 This file records the changes made in this fork relative to the upstream repository.
 

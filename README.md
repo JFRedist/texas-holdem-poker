@@ -4,15 +4,15 @@
 
 A web-based multiplayer Texas Hold'em game built with Flask + Socket.IO — play against humans and AI bots, with live hand analysis, showdown history and background music.
 
-![GitHub stars](https://img.shields.io/github/stars/ZiFeng666/texas-holdem-poker?style=social)
-![GitHub forks](https://img.shields.io/github/forks/ZiFeng666/texas-holdem-poker?style=social)
-![GitHub license](https://img.shields.io/github/license/ZiFeng666/texas-holdem-poker)
+![GitHub stars](https://img.shields.io/github/stars/JFRedist/texas-holdem-poker?style=social)
+![GitHub forks](https://img.shields.io/github/forks/JFRedist/texas-holdem-poker?style=social)
+![GitHub license](https://img.shields.io/github/license/JFRedist/texas-holdem-poker)
 ![Python version](https://img.shields.io/badge/python-3.8%2B-blue)
 [![Upstream](https://img.shields.io/badge/Upstream-Jason%20He-blue)](https://github.com/stars1210JasonHe/texas-holdem-poker)
 
-> 🔱 本仓库 Fork 自 [Jason He](https://github.com/stars1210JasonHe) 的 [原项目](https://github.com/stars1210JasonHe/texas-holdem-poker)，由 [ZiFeng666](https://github.com/ZiFeng666) 维护，新增了牌型分析、中英文界面、房间解散等功能并修复了若干问题，详见 [CHANGELOG](CHANGELOG.md)。
+> 🔱 本仓库 Fork 自 [Jason He](https://github.com/stars1210JasonHe) 的 [原项目](https://github.com/stars1210JasonHe/texas-holdem-poker)，由 [JFRedist](https://github.com/JFRedist) 维护，新增了牌型分析、中英文界面、房间解散等功能并修复了若干问题，详见 [CHANGELOG](CHANGELOG.md)。
 >
-> 🔱 Forked from the [original project](https://github.com/stars1210JasonHe/texas-holdem-poker) by [Jason He](https://github.com/stars1210JasonHe) and maintained by [ZiFeng666](https://github.com/ZiFeng666). See the [CHANGELOG](CHANGELOG.md) for what's new in this fork.
+> 🔱 Forked from the [original project](https://github.com/stars1210JasonHe/texas-holdem-poker) by [Jason He](https://github.com/stars1210JasonHe) and maintained by [JFRedist](https://github.com/JFRedist). See the [CHANGELOG](CHANGELOG.md) for what's new in this fork.
 
 [中文](#中文) | [English](#english)
 
@@ -47,7 +47,7 @@ A web-based multiplayer Texas Hold'em game built with Flask + Socket.IO — play
 环境要求：Python 3.8+（Python 3.13 需要 `pip install "eventlet>=0.37"`）和一个现代浏览器。
 
 ```bash
-git clone https://github.com/ZiFeng666/texas-holdem-poker.git
+git clone https://github.com/JFRedist/texas-holdem-poker.git
 cd texas-holdem-poker
 
 python -m venv poker_env
@@ -118,8 +118,8 @@ gunicorn --worker-class eventlet -w 1 --bind 0.0.0.0:8888 app:app
 ### 📄 许可证与联系方式
 
 - 许可证：[MIT](LICENSE)
-- 问题反馈：[GitHub Issues](https://github.com/ZiFeng666/texas-holdem-poker/issues)
-- 维护者：[ZiFeng666](https://github.com/ZiFeng666) · Zi_Feng666@126.com
+- 问题反馈：[GitHub Issues](https://github.com/JFRedist/texas-holdem-poker/issues)
+- 维护者：[JFRedist](https://github.com/JFRedist) · Zi_Feng666@126.com
 - 原作者：[Jason He](https://github.com/stars1210JasonHe) · [上游仓库](https://github.com/stars1210JasonHe/texas-holdem-poker)
 
 ---
@@ -153,7 +153,7 @@ gunicorn --worker-class eventlet -w 1 --bind 0.0.0.0:8888 app:app
 Requirements: Python 3.8+ (on Python 3.13, run `pip install "eventlet>=0.37"`) and a modern browser.
 
 ```bash
-git clone https://github.com/ZiFeng666/texas-holdem-poker.git
+git clone https://github.com/JFRedist/texas-holdem-poker.git
 cd texas-holdem-poker
 
 python -m venv poker_env
@@ -244,8 +244,8 @@ Issues and pull requests are welcome. Please use [Conventional Commits](https://
 ### 📄 License & Contact
 
 - License: [MIT](LICENSE)
-- Issues: [GitHub Issues](https://github.com/ZiFeng666/texas-holdem-poker/issues)
-- Maintainer: [ZiFeng666](https://github.com/ZiFeng666) · Zi_Feng666@126.com
+- Issues: [GitHub Issues](https://github.com/JFRedist/texas-holdem-poker/issues)
+- Maintainer: [JFRedist](https://github.com/JFRedist) · Zi_Feng666@126.com
 - Original author: [Jason He](https://github.com/stars1210JasonHe) · [upstream repository](https://github.com/stars1210JasonHe/texas-holdem-poker)
 
 ---
@@ -254,6 +254,6 @@ Issues and pull requests are welcome. Please use [Conventional Commits](https://
 
 如果这个项目对你有帮助，欢迎点个 ⭐ Star！ · If you find this project useful, a ⭐ is appreciated!
 
-Made with ❤️ by [Jason He](https://github.com/stars1210JasonHe) · Maintained by [ZiFeng666](https://github.com/ZiFeng666)
+Made with ❤️ by [Jason He](https://github.com/stars1210JasonHe) · Maintained by [JFRedist](https://github.com/JFRedist)
 
 </div>
