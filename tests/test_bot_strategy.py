@@ -70,4 +70,31 @@ me = bot(BotLevel.GOD, '7s 2h'); o = opp('Ac Ad')
 act = decide(me, state('', me, [o], pot=30, current_bet=20, bb=20))
 check('之神：翻牌前 72 对 AA 弃牌', act[0] == A.FOLD, act)
 
+# ===== 翻牌前评分 =====
+score = lambda h: bot(BotLevel.BEGINNER, h)._evaluate_preflop_hand()
+order = ['As Ah', 'Ks Kh', 'As Ks', 'Qs Js', '2s 2h', '5s 4s', '7s 2h']
+scores = [score(h) for h in order]
+check('翻牌前评分排序 AA > KK > AKs > QJs > 22 > 54s > 72o', scores == sorted(scores, reverse=True), [round(x, 2) for x in scores])
+check('AKs 不再高于 AA、QJs 不再等于 KK', score('As Ks') < score('As Ah') and score('Qs Js') < score('Ks Kh') - 0.2)
+
+# ===== 中级 / 初级：翻牌前 =====
+def preflop_state(me, n_opp, current_bet=20, pot=30, position='early'):
+    others = [opp('2c 3d', pid=f'o{i}') for i in range(n_opp)]
+    gs = state('', me, others, pot=pot, current_bet=current_bet)
+    gs['position'] = position
+    return gs
+random.seed(0)
+me = bot(BotLevel.INTERMEDIATE, 'As Ah')
+acts = {decide(me, preflop_state(me, 5))[0] for _ in range(10)}
+check('中级：多人局 AA 翻牌前加注', acts <= {A.RAISE, A.ALL_IN}, acts)
+me = bot(BotLevel.INTERMEDIATE, '7s 2h')
+acts = {decide(me, preflop_state(me, 5, current_bet=60, pot=90))[0] for _ in range(10)}
+check('中级：72o 面对加注弃牌', acts == {A.FOLD}, acts)
+me = bot(BotLevel.BEGINNER, '7s 2h')
+acts = {decide(me, preflop_state(me, 3))[0] for _ in range(10)}
+check('初级：72o 面对大盲弃牌', acts == {A.FOLD}, acts)
+me = bot(BotLevel.BEGINNER, 'As Ah')
+acts = {decide(me, preflop_state(me, 3))[0] for _ in range(20)}
+check('初级：AA 不会弃牌', A.FOLD not in acts, acts)
+
 print('\n全部通过' if not fails else f'\n失败 {len(fails)} 项: {fails}')
