@@ -9,6 +9,7 @@ from enum import Enum
 from .player import Player, PlayerAction, PlayerStatus
 from .card import Card, Suit, Rank
 from .hand_evaluator import HandEvaluator, HandRank
+from .equity import equity_vs_random, equity_vs_known, preflop_equity
 import itertools
 import math
 
@@ -203,7 +204,7 @@ class Bot(Player):
         
         # 改进的胜率计算
         if len(community_cards) >= 3:
-            win_probability = self._improved_monte_carlo(community_cards, num_opponents, 2000)
+            win_probability = self._improved_monte_carlo(community_cards, num_opponents, 1000)
         else:
             # Pre-flop 胜率表
             win_probability = self._preflop_win_rate(num_opponents)
@@ -286,7 +287,7 @@ class Bot(Player):
         
         # 高级胜率计算
         if len(community_cards) >= 3:
-            win_probability = self._advanced_monte_carlo(community_cards, num_opponents, 3000)
+            win_probability = self._advanced_monte_carlo(community_cards, num_opponents, 1500)
             hand_equity = self._calculate_hand_equity(community_cards)
         else:
             win_probability = self._advanced_preflop_strategy(num_opponents, position)
@@ -458,70 +459,13 @@ class Bot(Player):
         
         return hand_strength * opponent_factor
     
-    def _improved_monte_carlo(self, community_cards: List[Card], num_opponents: int, simulations: int = 2000) -> float:
-        """改进的蒙特卡洛模拟"""
+    def _improved_monte_carlo(self, community_cards: List[Card], num_opponents: int, simulations: int = 1000) -> float:
+        """蒙特卡洛胜率：完整比较牌型、点数与踢脚，平局按人数分摊"""
         if len(self.hole_cards) != 2:
             return 0.0
-        
-        wins = 0
-        ties = 0
-        
-        # 创建完整牌组
-        all_cards = []
-        for suit in [Suit.HEARTS, Suit.DIAMONDS, Suit.CLUBS, Suit.SPADES]:
-            for rank in [Rank.TWO, Rank.THREE, Rank.FOUR, Rank.FIVE, Rank.SIX, 
-                        Rank.SEVEN, Rank.EIGHT, Rank.NINE, Rank.TEN, 
-                        Rank.JACK, Rank.QUEEN, Rank.KING, Rank.ACE]:
-                all_cards.append(Card(suit, rank))
-        
-        # 移除已知牌
-        known_cards = set(self.hole_cards + community_cards)
-        available_cards = [card for card in all_cards if card not in known_cards]
-        
-        for _ in range(simulations):
-            # 随机洗牌
-            simulation_deck = available_cards.copy()
-            random.shuffle(simulation_deck)
-            
-            # 完成公共牌
-            sim_community = community_cards.copy()
-            cards_needed = 5 - len(community_cards)
-            if cards_needed > 0:
-                sim_community.extend(simulation_deck[:cards_needed])
-                deck_pos = cards_needed
-            else:
-                deck_pos = 0
-            
-            # 计算我们的手牌强度
-            our_hand_rank, _ = HandEvaluator.evaluate_hand(self.hole_cards, sim_community)
-            
-            # 模拟对手手牌
-            better_opponents = 0
-            equal_opponents = 0
-            
-            for _ in range(num_opponents):
-                if deck_pos + 2 > len(simulation_deck):
-                    break
-                    
-                opponent_cards = simulation_deck[deck_pos:deck_pos + 2]
-                deck_pos += 2
-                
-                opponent_hand_rank, _ = HandEvaluator.evaluate_hand(opponent_cards, sim_community)
-                
-                if opponent_hand_rank.rank_value > our_hand_rank.rank_value:
-                    better_opponents += 1
-                elif opponent_hand_rank.rank_value == our_hand_rank.rank_value:
-                    equal_opponents += 1
-            
-            if better_opponents == 0:
-                if equal_opponents == 0:
-                    wins += 1
-                else:
-                    ties += 1
-        
-        return (wins + ties * 0.5) / simulations if simulations > 0 else 0.0
-    
-    def _advanced_monte_carlo(self, community_cards: List[Card], num_opponents: int, simulations: int = 3000) -> float:
+        return equity_vs_random(self.hole_cards, community_cards, num_opponents, simulations)['equity']
+
+    def _advanced_monte_carlo(self, community_cards: List[Card], num_opponents: int, simulations: int = 1500) -> float:
         """高级蒙特卡洛模拟，考虑对手范围"""
         base_win_rate = self._improved_monte_carlo(community_cards, num_opponents, simulations)
         

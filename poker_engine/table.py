@@ -12,6 +12,7 @@ from .card import Card, Deck
 from .player import Player, PlayerStatus, PlayerAction
 from .bot import Bot, BotLevel
 from .hand_evaluator import HandEvaluator, HandRank
+from .equity import equity_vs_random
 
 
 class GameStage(Enum):
@@ -722,43 +723,16 @@ class Table:
         player = self.get_player(player_id)
         if not player or len(player.hole_cards) != 2:
             return None
-        
-        wins = 0
-        ties = 0
-        
-        for _ in range(simulations):
-            # 简化的蒙特卡洛模拟
-            our_hand = HandEvaluator.evaluate_hand(player.hole_cards, self.community_cards)
-            
-            # 模拟对手牌力
-            opponent_stronger = False
-            opponent_same = False
-            
-            # 简化：随机生成对手牌力
-            for _ in range(len(self.players) - 1):
-                opponent_strength = random.random()
-                our_strength = our_hand[0].rank_value / 10.0
-                
-                if opponent_strength > our_strength:
-                    opponent_stronger = True
-                    break
-                elif abs(opponent_strength - our_strength) < 0.01:
-                    opponent_same = True
-            
-            if not opponent_stronger:
-                if opponent_same:
-                    ties += 1
-                else:
-                    wins += 1
-        
-        win_rate = wins / simulations
-        tie_rate = ties / simulations
-        lose_rate = 1 - win_rate - tie_rate
-        
+
+        # 对仍在牌局中的对手（手牌未知，按随机手牌）做蒙特卡洛模拟
+        opponents = [p for p in self.players if p is not player
+                     and p.status in (PlayerStatus.PLAYING, PlayerStatus.ALL_IN)]
+        result = equity_vs_random(player.hole_cards, self.community_cards, max(1, len(opponents)),
+                                  min(simulations, 5000))
         return {
-            'win': round(win_rate, 3),
-            'tie': round(tie_rate, 3),
-            'lose': round(lose_rate, 3)
+            'win': round(result['win'], 3),
+            'tie': round(result['tie'], 3),
+            'lose': round(result['lose'], 3)
         }
     
     def get_card_tracking_info(self) -> Dict:
