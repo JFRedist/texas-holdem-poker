@@ -288,6 +288,17 @@
                             <button type="button" class="bot-increase bg-blue-600 hover:bg-blue-500 text-white w-7 h-7 sm:w-8 sm:h-8 rounded-full text-sm" data-level="advanced">+</button>
                         </div>
                     </div>
+                    <div class="flex items-center justify-between bg-gray-700 rounded-lg p-2 sm:p-3">
+                        <div class="flex-1 min-w-0">
+                            <span class="text-white font-medium text-sm sm:text-base">🔮 <span data-i18n="德州扑克之神">德州扑克之神</span></span>
+                            <div class="text-xs text-gray-400 hidden sm:block" data-i18n="能看到所有手牌的作弊AI">能看到所有手牌的作弊AI</div>
+                        </div>
+                        <div class="flex items-center space-x-1 sm:space-x-2">
+                            <button type="button" class="bot-decrease bg-gray-600 hover:bg-gray-500 text-white w-7 h-7 sm:w-8 sm:h-8 rounded-full text-sm" data-level="god">-</button>
+                            <span class="bot-count text-white font-mono w-6 sm:w-8 text-center text-sm" data-level="god">0</span>
+                            <button type="button" class="bot-increase bg-blue-600 hover:bg-blue-500 text-white w-7 h-7 sm:w-8 sm:h-8 rounded-full text-sm" data-level="god">+</button>
+                        </div>
+                    </div>
                 </div>
                 <input type="hidden" id="botConfig" name="botConfig" value="{}">
             </div>
@@ -493,7 +504,7 @@
 
     // 调整机器人数量到限制
     function adjustBotsToLimit(maxBots) {
-        const levels = ['advanced', 'intermediate', 'beginner'];
+        const levels = ['god', 'advanced', 'intermediate', 'beginner'];
         let currentTotal = getTotalBots();
         
         for (const level of levels) {

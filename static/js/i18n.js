@@ -220,6 +220,8 @@
         '初级机器人': 'Beginner Bot',
         '中级机器人': 'Intermediate Bot',
         '高级机器人': 'Advanced Bot',
+        '德州扑克之神': 'Poker God',
+        '能看到所有手牌的作弊AI': 'Cheating AI that sees every hand',
         '本地局域网多人游戏': 'Local multiplayer game',
         '输入您的昵称': 'Enter your nickname',
         '请输入昵称（1-20个字符）': 'Nickname (1-20 characters)',

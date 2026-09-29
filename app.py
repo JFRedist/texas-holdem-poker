@@ -1019,9 +1019,10 @@ def handle_create_table(data):
                 bot_names = {
                     'beginner': ['新手', '菜鸟', '学徒', '小白', '萌新'],
                     'intermediate': ['老司机', '高手', '大神', '专家', '老手'],
-                    'advanced': ['大师', '传奇', '王者', '至尊', '无敌']
+                    'advanced': ['大师', '传奇', '王者', '至尊', '无敌'],
+                    'god': ['德州之神', '扑克天神', '全知全能', '透视眼', '作弊之王']
                 }
-                
+
                 for level, count in bots_config.items():
                     if level in bot_names and count > 0:
                         total_bots_requested += count
