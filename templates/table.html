@@ -777,11 +777,12 @@
         if (!slider || !currentTableState) return;
         
         const myPlayer = currentTableState.players.find(p => p.id === myPlayerId);
-        const maxBet = myPlayer ? Math.max(1, myPlayer.chips) : 1000;
-        // 加注模式：最小加注 = 当前下注 + 大盲；下注模式：最小下注 = 大盲
+        // 金额表示本轮下注到的总额：上限 = 已下注 + 剩余筹码（即全下）
+        const maxBet = myPlayer ? Math.max(1, myPlayer.chips + myPlayer.current_bet) : 1000;
+        // 最小下注 / 最小加注到的金额由服务端按规则计算（最小加注 = 当前下注 + 上一次加注幅度）
         let minBet = currentTableState.current_bet > 0
-            ? currentTableState.current_bet + currentTableState.big_blind
-            : currentTableState.big_blind;
+            ? (currentTableState.min_raise_to || currentTableState.current_bet + currentTableState.big_blind)
+            : (currentTableState.min_bet || currentTableState.big_blind);
         minBet = Math.max(1, Math.min(minBet, maxBet));
         const step = Math.max(1, Math.floor(currentTableState.big_blind / 2));
         
@@ -808,7 +809,7 @@
         document.getElementById('betAmount').placeholder = '输入加注金额';
         // 设置最小加注额
         if (currentTableState) {
-            const minRaise = currentTableState.current_bet + currentTableState.big_blind;
+            const minRaise = currentTableState.min_raise_to || currentTableState.current_bet + currentTableState.big_blind;
             document.getElementById('betAmount').min = minRaise;
             document.getElementById('betAmount').placeholder = `最小加注: $${minRaise}`;
         }
@@ -1116,13 +1117,14 @@
         
         // 显示获胜者信息
         if (data.winners && data.winners.length > 0) {
-            const winner = data.winners[0];
-            const pot = currentTableState ? currentTableState.pot : 0;
-            showNotification('🎉 ' + winner.nickname + ' ' + I18N.t('获胜！赢得 ${0}', pot), 'success', 5000);
-            addActionLog('系统', 'hand_end', pot, `🎉 ${winner.nickname} 获胜，赢得 $${pot}`);
-            
+            // 可能有多名赢家（边池 / 平分底池），金额为各自实际赢得的筹码
+            data.winners.forEach(w => {
+                showNotification('🎉 ' + w.nickname + ' ' + I18N.t('获胜！赢得 ${0}', w.amount), 'success', 5000);
+                addActionLog('系统', 'hand_end', w.amount, `🎉 ${w.nickname} 获胜，赢得 $${w.amount}`);
+            });
+
             // 如果我是获胜者，特别提示筹码增加
-            if (winner.nickname === currentPlayer.nickname) {
+            if (data.winners.some(w => w.nickname === currentPlayer.nickname)) {
                 const myPlayer = currentTableState.players.find(p => p.id === myPlayerId);
                 if (myPlayer) {
                     showNotification(`💰 恭喜！您现在有 $${myPlayer.chips} 筹码`, 'success', 3000);

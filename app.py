@@ -80,8 +80,31 @@ current_hands: Dict[str, int] = {}    # table_id -> hand_id (当前手牌ID)
 # 添加下一轮开始相关的数据结构
 next_round_votes = {}  # {table_id: {player_id: True/False}}
 
+_bot_processing_locks: Dict[str, threading.Lock] = {}
+
+
 def process_bot_actions(table_id: str):
-    """处理机器人动作"""
+    """处理机器人动作。同一牌桌同时只允许一个处理循环，避免两个任务替同一个机器人重复行动"""
+    lock = _bot_processing_locks.setdefault(table_id, threading.Lock())
+    while True:
+        if not lock.acquire(blocking=False):
+            print(f"⏭️ 房间 {table_id} 已有机器人处理在进行，跳过")
+            return None
+        try:
+            result = _process_bot_actions_locked(table_id)
+        finally:
+            lock.release()
+        # 处理结束的瞬间可能有玩家刚行动而被跳过：若仍轮到机器人，则再处理一轮
+        table = tables.get(table_id)
+        if (result and result.get('hand_complete')) or not table or table.game_stage == GameStage.FINISHED:
+            return result
+        current = table.get_current_player()
+        if not (current and current.is_bot):
+            return result
+
+
+def _process_bot_actions_locked(table_id: str):
+    """处理机器人动作（调用方需持有该牌桌的处理锁）"""
     try:
         if table_id not in tables:
             return
@@ -1529,9 +1552,9 @@ def handle_start_hand():
         
         table = tables[table_id]
         
-        # 检查玩家数量
-        if len(table.players) < 2:
-            emit('error', {'message': '至少需要2名玩家才能开始游戏'})
+        # 检查玩家数量（筹码为 0 的玩家只能观战）
+        if len([p for p in table.players if p.chips > 0]) < 2:
+            emit('error', {'message': '至少需要2名有筹码的玩家才能开始游戏'})
             return
         
         # 检查游戏状态
@@ -1679,13 +1702,8 @@ def handle_player_action(data):
                     bot_result = process_bot_actions(table_id)  # 使用修改后的函数
                     print(f"🔍 机器人处理结果: {bot_result}")
                     
-                    # 检查机器人动作后是否手牌结束
-                    if bot_result and bot_result.get('hand_complete'):
-                        print(f"🏆 机器人动作导致手牌结束")
-                        hand_ended = True
-                        showdown_info = bot_result.get('showdown_info', {})
-                        winner = bot_result.get('winner')
-                    # 注意：process_bot_actions已经会发送状态更新和行动通知了
+                    # 注意：process_bot_actions 已经会发送状态更新、行动通知，
+                    # 并在手牌结束时调用 handle_hand_end，这里不能再调用一次（否则结算消息重复）
                 except Exception as bot_error:
                     print(f"处理机器人动作时出错: {bot_error}")
                     # 即使机器人处理出错，也要发送状态更新
@@ -2152,7 +2170,8 @@ def handle_hand_end(table_id, winner, showdown_info):
             hand_id = current_hands[table_id]
             winner_id = winner_player.id if winner_player else None
             winner_nickname = winner_player.nickname if winner_player else None
-            winning_amount = showdown_info.get('pot', table.pot)
+            winning_amount = (showdown_info['winners'][0]['amount'] if showdown_info.get('winners')
+                              else showdown_info.get('pot', table.pot))
             community_cards = [card.to_dict() for card in table.community_cards]
             
             log_hand_ended(hand_id, winner_id, winner_nickname, 
@@ -2168,18 +2187,23 @@ def handle_hand_end(table_id, winner, showdown_info):
         winner_message = "手牌结束"
         showdown_players = []
         
-        if winner_player:
-            # 计算获胜奖金 - 使用底池数量
+        if showdown_info.get('winners'):
+            # 引擎按边池/平分结算后的真实赢得金额（可能有多名赢家）
+            winner_list = [{'nickname': w['nickname'], 'chips': w['chips'], 'amount': w['amount']}
+                           for w in showdown_info['winners']]
+            names = '、'.join(w['nickname'] for w in winner_list)
+            if showdown_info.get('win_reason') == 'others_folded':
+                winner_message = f"手牌结束，{names} 获胜（其他玩家弃牌）"
+            else:
+                winner_message = f"手牌结束，{names} 获胜"
+        elif winner_player:
             winning_amount = showdown_info.get('pot', table.pot)
             winner_list = [{
-                'nickname': winner_player.nickname, 
+                'nickname': winner_player.nickname,
                 'chips': winner_player.chips,
-                'amount': winning_amount  # 添加奖金信息
+                'amount': winning_amount
             }]
-            if showdown_info.get('win_reason') == 'others_folded':
-                winner_message = f"手牌结束，{winner_player.nickname} 获胜（其他玩家弃牌）"
-            else:
-                winner_message = f"手牌结束，{winner_player.nickname} 获胜"
+            winner_message = f"手牌结束，{winner_player.nickname} 获胜"
         
         # 如果有摊牌信息，添加详细信息
         if showdown_info.get('is_showdown') and showdown_info.get('showdown_players'):
@@ -2195,7 +2219,8 @@ def handle_hand_end(table_id, winner, showdown_info):
                     'hand_description': player_info['hand_description'],
                     'rank': player_info['rank'],
                     'result': player_info['result'],
-                    'winnings': player_info['winnings']
+                    'winnings': player_info['winnings'],
+                    'returned': player_info.get('returned', 0)
                 })
         else:
             print(f"🃏 没有摊牌信息或不是摊牌: is_showdown={showdown_info.get('is_showdown')}, players={len(showdown_info.get('showdown_players', []))}")
@@ -2209,7 +2234,8 @@ def handle_hand_end(table_id, winner, showdown_info):
             'showdown_info': {
                 'is_showdown': showdown_info.get('is_showdown', False),
                 'community_cards': showdown_info.get('community_cards', []),
-                'showdown_players': showdown_players
+                'showdown_players': showdown_players,
+                'pots': showdown_info.get('pots', [])
             }
         }
         

@@ -6,6 +6,25 @@ This file records the changes made in this fork relative to the upstream reposit
 
 ---
 
+## 2026-09-30
+
+### 修复 / Fixed
+- **按真实德州扑克规则结算**：
+  - 筹码输光的玩家转为观战，不再发牌、不交盲注，也不能再赢得底池（此前 0 筹码玩家照常参与并可能赢下整个底池）。
+  - 新增主池 / 边池：每名玩家只能赢取自己投入所对应的部分，短码全下不再赢走深码的全部投入；超出所有对手承受范围、无人跟注的筹码退还本人。
+  - 牌力相同时平分底池，零头按庄家左手第一位开始分配（此前由一人独得）。
+  - 其他人全下后，剩下的玩家仍需对欠注做出跟注或弃牌（此前会被直接跳过）；无人能再下注时自动发完公共牌摊牌。
+  - 最小下注为一个大盲，最小加注为「当前下注 + 上一次加注幅度」；不足额的全下加注不重新开放加注。
+  - 单挑局翻牌后改为大盲先行动；庄家按座位轮换到下一位有筹码的玩家。
+  - 机器人的加注金额不再可能把全桌当前下注改小。
+- **机器人重复行动**：同一牌桌同时只允许一个机器人处理流程，避免两个任务替同一个机器人行动（曾导致已全下的机器人被判弃牌）；手牌结束消息不再重复发送。
+- 结算提示显示每位赢家的实际赢得金额。
+
+  **Real Texas Hold'em settlement**: busted players sit out; side pots, split pots with odd-chip rule and uncalled-bet returns; the last active player must still respond to an all-in; minimum bet/raise rules; heads-up post-flop order. Bot processing is now serialized per table.
+
+### 测试 / Tests
+- 新增 `tests/test_table_rules.py`（规则场景 + 两千多手随机牌局的筹码守恒测试）与 `tests/test_bot_games.py`（纯机器人对局）。
+
 ## 2026-09-29
 
 ### 新增 / Added

@@ -52,7 +52,10 @@ class Table:
         self.pot = 0
         self.current_bet = 0
         self.min_raise = big_blind if game_mode == "blinds" else max(1, int(initial_chips * ante_percentage))
-        
+        self.last_raise_size = self.min_raise  # 本轮最近一次完整加注的幅度（最小加注 = 当前下注 + 该值）
+        self.hand_players: List[Player] = []   # 本手牌发到牌的玩家（按座位顺序），用于行动顺序与边池结算
+        self.dealer_id: Optional[str] = None
+
         self.dealer_position = 0
         self.current_player_position = 0
         
@@ -107,43 +110,75 @@ class Table:
                 return seat_num
         return None
     
+    def _seat_order(self) -> List[Player]:
+        """按座位号排列的玩家（不在座位表中的玩家排在最后）"""
+        seated = [self.seats[i] for i in sorted(self.seats) if self.seats[i] is not None]
+        seated = [p for p in seated if p in self.players]
+        return seated + [p for p in self.players if p not in seated]
+
+    def _participants(self) -> List[Player]:
+        """本手牌的参与者（按座位顺序）。服务重启后从数据库恢复的牌局没有该记录，按是否持有底牌推断"""
+        if self.hand_players:
+            return self.hand_players
+        return [p for p in self._seat_order() if len(p.hole_cards) == 2]
+    
     def start_new_hand(self) -> bool:
-        """开始新一手牌"""
-        active_players = [p for p in self.players if p.status != PlayerStatus.DISCONNECTED]
+        """开始新一手牌：只有在线且有筹码的玩家发牌，筹码为 0 的玩家转为观战（BROKE）"""
+        ordered = self._seat_order()
+        active_players = [p for p in ordered if p.status != PlayerStatus.DISCONNECTED and p.chips > 0]
         if len(active_players) < 2:
             return False
-        
-        # 轮换庄家位置（每手牌轮换）
-        if self.hand_number > 0:  # 第一手牌庄家位置为0，之后每手牌轮换
-            self.dealer_position = (self.dealer_position + 1) % len(active_players)
-        
+
+        # 庄家按座位顺序轮换到下一位有筹码的玩家（第一手牌为第一位）
+        if self.dealer_id is None or self.hand_number == 0:
+            dealer = active_players[0]
+        else:
+            prev = next((p for p in ordered if p.id == self.dealer_id), None)
+            if prev is None:
+                dealer = active_players[0]
+            else:
+                start = ordered.index(prev)
+                dealer = next(ordered[(start + i) % len(ordered)] for i in range(1, len(ordered) + 1)
+                              if ordered[(start + i) % len(ordered)] in active_players)
+        self.dealer_id = dealer.id
+        self.dealer_position = active_players.index(dealer)
+
         # 重置游戏状态
         self.community_cards = []
         self.pot = 0
         self.current_bet = 0
+        self.last_raise_size = self.min_raise
         self.hand_number += 1
         self.game_stage = GameStage.PRE_FLOP  # 明确设置为PRE_FLOP阶段
-        
+        self.hand_players = active_players
+
         self.deck.reset()
         self.deck.shuffle()
-        
+
+        for player in self.players:
+            if player in active_players:
+                continue
+            # 不参与本手牌的玩家：清空上一手的底牌和下注，破产玩家转为观战
+            player.reset_for_new_hand()
+            if player.status != PlayerStatus.DISCONNECTED:
+                player.status = PlayerStatus.BROKE if player.chips <= 0 else PlayerStatus.WAITING
+
         for player in active_players:
             # 先重置玩家状态，再发牌（reset_for_new_hand 会清除庄家/盲注标记）
             player.reset_for_new_hand()
             player.status = PlayerStatus.PLAYING
             hole_cards = self.deck.deal_cards(2)
             player.deal_hole_cards(hole_cards)
-        
+
         # 清除所有玩家的位置标记（保险，防止残留）
         for player in self.players:
             player.is_dealer = False
             player.is_small_blind = False
             player.is_big_blind = False
-        
+
         # 设置当前庄家（必须在 reset 之后，否则标记会被重置）
-        if len(active_players) > 0:
-            active_players[self.dealer_position].is_dealer = True
-            print(f"🎯 庄家: {active_players[self.dealer_position].nickname} (位置 {self.dealer_position})")
+        dealer.is_dealer = True
+        print(f"🎯 庄家: {dealer.nickname} (位置 {self.dealer_position})")
         
         # 根据游戏模式收取初始下注
         if self.game_mode == "blinds":
@@ -214,59 +249,18 @@ class Table:
         if not current_player or current_player.id != player_id:
             return {'success': False, 'message': '现在不是您的回合'}
         
-        actual_amount = 0
-        action_description = ""
-        
         try:
-            if action == PlayerAction.FOLD:
-                player.fold()
-                action_description = "弃牌"
-            elif action == PlayerAction.CHECK:
-                if self.current_bet > player.current_bet:
-                    return {'success': False, 'message': '当前有下注，无法过牌'}
-                player.check()
-                action_description = "过牌"
-            elif action == PlayerAction.CALL:
-                call_amount = self.current_bet - player.current_bet
-                if call_amount <= 0:
-                    return {'success': False, 'message': '无需跟注'}
-                actual_amount = player.call(self.current_bet)
-                self.pot += actual_amount
-                action_description = f"跟注 ${actual_amount}"
-            elif action == PlayerAction.BET:
-                if self.current_bet > 0:
-                    return {'success': False, 'message': '已有下注，请选择跟注或加注'}
-                
-                if amount <= 0:
-                    return {'success': False, 'message': '下注金额必须大于0'}
-                    
-                # 下注逻辑（ante和blinds模式都一样）
-                actual_amount = player.place_bet(amount)
-                self.current_bet = player.current_bet
-                self.pot += actual_amount
-                action_description = f"下注 ${actual_amount}"
-            elif action == PlayerAction.RAISE:
-                if self.current_bet == 0:
-                    return {'success': False, 'message': '没有下注，请选择下注'}
-                if amount <= self.current_bet:
-                    return {'success': False, 'message': f'加注金额必须大于当前下注 ${self.current_bet}'}
-                raise_amount = amount - player.current_bet
-                actual_amount = player.place_bet(raise_amount)
-                self.current_bet = player.current_bet
-                self.pot += actual_amount
-                action_description = f"加注到 ${amount}"
-            elif action == PlayerAction.ALL_IN:
-                if player.chips == 0:
-                    return {'success': False, 'message': '没有筹码可以全下'}
-                actual_amount = player.place_bet(player.chips)
-                self.current_bet = max(self.current_bet, player.current_bet)
-                self.pot += actual_amount
-                action_description = f"全下 ${actual_amount}"
-            else:
-                return {'success': False, 'message': '无效的动作'}
-            
-            # 标记玩家已行动
-            player.has_acted = True
+            amount = int(amount or 0)
+        except (TypeError, ValueError):
+            return {'success': False, 'message': '金额无效'}
+
+        try:
+            executed = self._execute_action(player, action, amount, strict=True)
+            if not executed['success']:
+                return executed
+            actual_amount = executed['amount']
+            action_description = executed['description']
+            action = executed['action']
             self.last_activity = time.time()
             
             # 检查游戏流程
@@ -293,6 +287,112 @@ class Table:
         except Exception as e:
             return {'success': False, 'message': f'动作执行失败: {str(e)}'}
     
+    def min_bet(self) -> int:
+        """最小下注额（盲注模式为大盲，按比例模式为 ante 额）"""
+        return self.min_raise
+
+    def min_raise_to(self) -> int:
+        """最小加注到的总额：当前下注 + 本轮最近一次完整加注的幅度"""
+        return self.current_bet + max(self.last_raise_size, self.min_bet())
+
+    def _commit_chips(self, player: Player, to_amount: int) -> int:
+        """把玩家本轮下注补到 to_amount（筹码不足则全下），返回实际投入，并更新当前下注/最小加注"""
+        added = player.place_bet(max(0, to_amount - player.current_bet))
+        self.pot += added
+        if player.current_bet > self.current_bet:
+            raise_size = player.current_bet - self.current_bet
+            # 只有完整加注才更新最小加注幅度；不足额的全下加注不改变它
+            if raise_size >= self.last_raise_size:
+                self.last_raise_size = raise_size
+            self.current_bet = player.current_bet
+        return added
+
+    def _execute_action(self, player: Player, action: PlayerAction, amount: int = 0, strict: bool = True) -> Dict:
+        """
+        按德州扑克规则执行一个动作。
+        strict=True（真人）：非法金额直接拒绝；strict=False（机器人）：把金额修正到最接近的合法值。
+        BET / RAISE 的 amount 均表示「本轮下注到的总额」。
+        """
+        owe = max(0, self.current_bet - player.current_bet)
+        max_to = player.current_bet + player.chips  # 全下时本轮下注总额
+
+        def done(act, added, desc):
+            player.has_acted = True
+            return {'success': True, 'action': act, 'amount': added, 'description': desc}
+
+        def reject(msg):
+            return {'success': False, 'message': msg}
+
+        if player.chips <= 0 and action != PlayerAction.FOLD:
+            return reject('没有筹码，无法行动')
+
+        if action == PlayerAction.FOLD:
+            player.fold()
+            return done(PlayerAction.FOLD, 0, "弃牌")
+
+        if action == PlayerAction.CHECK:
+            if owe > 0:
+                if strict:
+                    return reject('当前有下注，无法过牌')
+                action = PlayerAction.CALL
+            else:
+                player.check()
+                return done(PlayerAction.CHECK, 0, "过牌")
+
+        if action == PlayerAction.CALL:
+            if owe <= 0:
+                if strict:
+                    return reject('无需跟注')
+                player.check()
+                return done(PlayerAction.CHECK, 0, "过牌")
+            added = self._commit_chips(player, self.current_bet)
+            if player.chips == 0:
+                return done(PlayerAction.ALL_IN, added, f"全下跟注 ${added}")
+            return done(PlayerAction.CALL, added, f"跟注 ${added}")
+
+        if action == PlayerAction.ALL_IN:
+            added = self._commit_chips(player, max_to)
+            return done(PlayerAction.ALL_IN, added, f"全下 ${added}")
+
+        if action == PlayerAction.BET and self.current_bet > 0:
+            if strict:
+                return reject('已有下注，请选择跟注或加注')
+            action = PlayerAction.RAISE
+        if action == PlayerAction.RAISE and self.current_bet == 0:
+            if strict:
+                return reject('没有下注，请选择下注')
+            action = PlayerAction.BET
+
+        if action == PlayerAction.BET:
+            minimum = self.min_bet()
+        elif action == PlayerAction.RAISE:
+            minimum = self.min_raise_to()
+            # 已行动且只面对不足额全下加注的玩家不能再加注，只能跟注或弃牌
+            if player.has_acted and self.current_bet - player.current_bet < self.last_raise_size and owe > 0:
+                if strict:
+                    return reject('对方全下不足一次完整加注，您只能跟注或弃牌')
+                return self._execute_action(player, PlayerAction.CALL, 0, strict=False)
+        else:
+            return reject('无效的动作')
+
+        if amount >= max_to:
+            # 金额达到或超过全部筹码，按全下处理（全下可以低于最小额）
+            added = self._commit_chips(player, max_to)
+            return done(PlayerAction.ALL_IN, added, f"全下 ${added}")
+        if amount < minimum:
+            if strict:
+                verb = '下注' if action == PlayerAction.BET else '加注到'
+                return reject(f'最小{verb} ${minimum}')
+            if minimum >= max_to:
+                added = self._commit_chips(player, max_to)
+                return done(PlayerAction.ALL_IN, added, f"全下 ${added}")
+            amount = minimum
+
+        added = self._commit_chips(player, amount)
+        if action == PlayerAction.BET:
+            return done(PlayerAction.BET, added, f"下注 ${amount}")
+        return done(PlayerAction.RAISE, added, f"加注到 ${amount}")
+
     def process_bot_actions(self):
         """处理机器人动作 - 持续处理直到轮到人类玩家或游戏结束"""
         from .bot import Bot
@@ -417,6 +517,11 @@ class Table:
                 if delay > 0:
                     print(f"🤖 {player.nickname} ({player.bot_level.value}) 思考中... ({delay}秒)")
                     time.sleep(delay)
+
+                # 思考期间牌局可能已变化（如手牌结束或其他流程已替它行动），确认仍轮到它
+                if self.get_current_player() is not player:
+                    print(f"🤖 {player.nickname} 已不是当前行动玩家，放弃本次决策")
+                    continue
                 
                 print(f"🤖 {player.nickname} 决定: {action_desc}")
                 
@@ -426,72 +531,19 @@ class Table:
                     card2_str = f"{player.hole_cards[1].rank.symbol}{player.hole_cards[1].suit.value}"
                     print(f"🤖 {player.nickname} 手牌: {card1_str} {card2_str}")
                 
-                # 直接处理机器人动作，不通过process_player_action避免递归
+                # 直接处理机器人动作，不通过process_player_action避免递归（非法金额自动修正为合法值）
                 try:
-                    if action_type == PlayerAction.FOLD:
+                    executed = self._execute_action(player, action_type, amount, strict=False)
+                    if executed['success']:
+                        print(f"🤖 {player.nickname} {executed['description']} (本轮投注: ${player.current_bet})")
+                    elif player.status == PlayerStatus.PLAYING and player.chips > 0:
                         player.fold()
-                        print(f"🤖 {player.nickname} 弃牌")
-                    elif action_type == PlayerAction.CHECK:
-                        # 防御：欠注时不能过牌（否则该玩家会永远"需要行动"导致游戏卡死）
-                        call_amount = self.current_bet - player.current_bet
-                        if call_amount > 0:
-                            if call_amount <= player.chips:
-                                actual_amount = player.call(self.current_bet)
-                                self.pot += actual_amount
-                                print(f"🤖 {player.nickname} 欠注不能过牌，改为跟注 ${actual_amount}")
-                            else:
-                                player.fold()
-                                print(f"🤖 {player.nickname} 欠注且无法跟注，改为弃牌")
-                        else:
-                            player.check()
-                            print(f"🤖 {player.nickname} 过牌")
-                    elif action_type == PlayerAction.CALL:
-                        call_amount = self.current_bet - player.current_bet
-                        if call_amount > 0:
-                            actual_amount = player.call(self.current_bet)
-                            self.pot += actual_amount
-                            print(f"🤖 {player.nickname} 跟注 ${actual_amount} (总投注: ${player.current_bet})")
-                        else:
-                            # 无需跟注，相当于过牌
-                            player.check()
-                            print(f"🤖 {player.nickname} 过牌（无需跟注）")
-                    elif action_type == PlayerAction.BET:
-                        if amount > 0 and amount <= player.chips:
-                            actual_amount = player.place_bet(amount)
-                            self.current_bet = player.current_bet
-                            self.pot += actual_amount
-                            print(f"🤖 {player.nickname} 下注 ${actual_amount} (总投注: ${player.current_bet})")
-                        else:
-                            # 无效下注，改为过牌
-                            player.check()
-                            print(f"🤖 {player.nickname} 下注无效，改为过牌")
-                    elif action_type == PlayerAction.RAISE:
-                        raise_amount = amount - player.current_bet
-                        if raise_amount > 0 and raise_amount <= player.chips:
-                            actual_amount = player.place_bet(raise_amount)
-                            self.current_bet = player.current_bet
-                            self.pot += actual_amount
-                            print(f"🤖 {player.nickname} 加注到 ${amount} (总投注: ${player.current_bet})")
-                        else:
-                            # 无效加注，改为跟注
-                            call_amount = self.current_bet - player.current_bet
-                            if call_amount > 0 and call_amount <= player.chips:
-                                actual_amount = player.call(self.current_bet)
-                                self.pot += actual_amount
-                                print(f"🤖 {player.nickname} 加注无效，改为跟注 ${actual_amount}")
-                            else:
-                                player.check()
-                                print(f"🤖 {player.nickname} 加注无效，改为过牌")
-                    elif action_type == PlayerAction.ALL_IN:
-                        if player.chips > 0:
-                            actual_amount = player.place_bet(player.chips)
-                            self.current_bet = max(self.current_bet, player.current_bet)
-                            self.pot += actual_amount
-                            print(f"🤖 {player.nickname} 全下 ${actual_amount} (总投注: ${player.current_bet})")
-                        else:
-                            player.check()
-                            print(f"🤖 {player.nickname} 无筹码全下，改为过牌")
-                    
+                        print(f"🤖 {player.nickname} 动作无效（{executed['message']}），弃牌")
+                    else:
+                        # 已全下/已出局的玩家不能被弃牌，否则会失去已投入筹码的争夺资格
+                        print(f"🤖 {player.nickname} 无法行动（{executed['message']}），跳过")
+                        continue
+
                     # 标记机器人已行动
                     player.has_acted = True
                     had_action_this_round = True
@@ -593,75 +645,16 @@ class Table:
                     if action:
                         action_type, amount = action
                         try:
-                            if action_type == PlayerAction.FOLD:
+                            # 防御：补充处理不在正常行动顺序内，不允许改变下注额（否则已行动玩家会突然欠注），
+                            # 下注/加注/全下一律降级为跟注补齐或过牌
+                            if action_type in (PlayerAction.BET, PlayerAction.RAISE, PlayerAction.ALL_IN):
+                                action_type = PlayerAction.CALL
+                            executed = self._execute_action(player, action_type, 0, strict=False)
+                            if executed['success']:
+                                print(f"🤖 {player.nickname} 补充处理: {executed['description']}")
+                            elif player.status == PlayerStatus.PLAYING and player.chips > 0:
                                 player.fold()
-                                print(f"🤖 {player.nickname} 弃牌")
-                            elif action_type == PlayerAction.CHECK:
-                                # 防御：欠注时不能过牌（否则该玩家会永远"需要行动"导致游戏卡死）
-                                call_amount = self.current_bet - player.current_bet
-                                if call_amount > 0:
-                                    if call_amount <= player.chips:
-                                        actual_amount = player.call(self.current_bet)
-                                        self.pot += actual_amount
-                                        print(f"🤖 {player.nickname} 欠注不能过牌，改为跟注 ${actual_amount}")
-                                    else:
-                                        player.fold()
-                                        print(f"🤖 {player.nickname} 欠注且无法跟注，改为弃牌")
-                                else:
-                                    player.check()
-                                    print(f"🤖 {player.nickname} 过牌")
-                            elif action_type == PlayerAction.CALL:
-                                call_amount = self.current_bet - player.current_bet
-                                if call_amount > 0:
-                                    actual_amount = player.call(self.current_bet)
-                                    self.pot += actual_amount
-                                    print(f"🤖 {player.nickname} 跟注 ${actual_amount}")
-                                else:
-                                    player.check()
-                                    print(f"🤖 {player.nickname} 过牌（无需跟注）")
-                            elif action_type == PlayerAction.BET:
-                                # 防御：补充处理不允许改变下注额（否则已行动玩家会突然欠注导致游戏卡死）
-                                # 降级为跟注补齐或过牌
-                                call_amount = self.current_bet - player.current_bet
-                                if call_amount > 0:
-                                    if call_amount <= player.chips:
-                                        actual_amount = player.call(self.current_bet)
-                                        self.pot += actual_amount
-                                        print(f"🤖 {player.nickname} 补充处理仅跟注 ${actual_amount}")
-                                    else:
-                                        player.fold()
-                                        print(f"🤖 {player.nickname} 无法跟注，弃牌")
-                                else:
-                                    player.check()
-                                    print(f"🤖 {player.nickname} 过牌")
-                            elif action_type == PlayerAction.RAISE:
-                                # 防御：补充处理不允许加注（原因同上），降级为跟注补齐
-                                call_amount = self.current_bet - player.current_bet
-                                if call_amount > 0:
-                                    if call_amount <= player.chips:
-                                        actual_amount = player.call(self.current_bet)
-                                        self.pot += actual_amount
-                                        print(f"🤖 {player.nickname} 补充处理仅跟注 ${actual_amount}")
-                                    else:
-                                        player.fold()
-                                        print(f"🤖 {player.nickname} 无法跟注，弃牌")
-                                else:
-                                    player.check()
-                                    print(f"🤖 {player.nickname} 过牌")
-                            elif action_type == PlayerAction.ALL_IN:
-                                # 防御：补充处理不允许全下改变下注额，降级为跟注补齐
-                                call_amount = self.current_bet - player.current_bet
-                                if call_amount > 0:
-                                    if call_amount <= player.chips:
-                                        actual_amount = player.call(self.current_bet)
-                                        self.pot += actual_amount
-                                        print(f"🤖 {player.nickname} 补充处理仅跟注 ${actual_amount}")
-                                    else:
-                                        player.fold()
-                                        print(f"🤖 {player.nickname} 无法跟注，弃牌")
-                                else:
-                                    player.check()
-                                    print(f"🤖 {player.nickname} 过牌")
+                                print(f"🤖 {player.nickname} 补充处理动作无效，弃牌")
                         except Exception as e:
                             print(f"❌ 执行机器人动作失败: {e}")
                             player.fold()
@@ -808,85 +801,41 @@ class Table:
         if self.game_stage == GameStage.WAITING or self.game_stage == GameStage.FINISHED:
             return None
         
-        # 只有PLAYING状态的玩家才需要行动（排除BROKE观察者）
-        active_players = [p for p in self.players if p.status == PlayerStatus.PLAYING]
-        if len(active_players) <= 1:
+        # 还在牌局中（未弃牌）的玩家，以及其中还能行动（有筹码）的玩家
+        contenders = [p for p in self.players if p.status in (PlayerStatus.PLAYING, PlayerStatus.ALL_IN)]
+        can_act = [p for p in contenders if p.status == PlayerStatus.PLAYING and p.chips > 0]
+        if len(contenders) <= 1 or not can_act:
             return None
-        
-        print(f"寻找当前行动玩家，阶段：{self.game_stage.value}，当前投注：${self.current_bet}")
-        
-        # 根据游戏模式确定行动顺序
+        if len(can_act) == 1:
+            # 其他人都已全下：剩下的玩家只有在欠注时才需要行动（跟注或弃牌），否则无人可对抗
+            only = can_act[0]
+            return only if only.current_bet < self.current_bet else None
+
+        # 行动顺序以本手牌发到牌的玩家（按座位）为准，庄家位置固定，再跳过不能行动的玩家
+        order = [p for p in self._participants() if p in self.players] or contenders
+        dealer_idx = next((i for i, p in enumerate(order) if p.is_dealer), 0)
+        n = len(order)
+
         if self.game_mode == "ante":
-            # ante模式：从庄家下一位开始行动（确保公平轮换）
-            # 找到当前庄家在active_players中的位置
-            dealer_index_in_active = None
-            for i, player in enumerate(active_players):
-                if player.is_dealer:
-                    dealer_index_in_active = i
-                    break
-            
-            if dealer_index_in_active is None:
-                print("警告：没有找到庄家，使用第一个玩家作为庄家")
-                dealer_index_in_active = 0
-                
-            # 从庄家下一位开始检查
-            start_position = (dealer_index_in_active + 1) % len(active_players)
-            
-            # 按照庄家后的顺序检查玩家
-            for i in range(len(active_players)):
-                player_index = (start_position + i) % len(active_players)
-                player = active_players[player_index]
-                
-                print(f"检查位置{player_index}的玩家 {player.nickname}：状态={player.status.value}, 投注=${player.current_bet}, 已行动={player.has_acted}, 筹码=${player.chips}")
-                
-                if player.chips > 0:
-                    # 检查玩家是否需要行动
-                    needs_action = (not player.has_acted or 
-                                  (player.current_bet < self.current_bet and player.chips > 0))
-                    
-                    if needs_action:
-                        print(f"找到需要行动的玩家：{player.nickname} (庄家后第{i+1}位)")
-                        return player
+            # 按比例下注模式：每条街都从庄家下一位开始
+            start = (dealer_idx + 1) % n
+        elif n == 2:
+            # 单挑局：翻牌前庄家（小盲）先行动，翻牌后大盲先行动
+            start = dealer_idx if self.game_stage == GameStage.PRE_FLOP else (dealer_idx + 1) % n
+        elif self.game_stage == GameStage.PRE_FLOP:
+            # 翻牌前：大盲下一位（UTG）先行动
+            start = (dealer_idx + 3) % n
         else:
-            # blinds模式：按庄家-小盲-大盲-下家的标准顺序行动
-            active = [p for p in self.players if p.status == PlayerStatus.PLAYING and p.chips > 0]
-            if not active:
-                print("没有找到需要行动的玩家（无活跃玩家）")
-                return None
-            
-            # 找到庄家在活跃玩家中的位置
-            dealer_idx = 0
-            for i, p in enumerate(active):
-                if p.is_dealer:
-                    dealer_idx = i
-                    break
-            
-            n = len(active)
-            if n == 2:
-                # 单挑局（heads-up）：庄家（小盲）总是先行动
-                start = dealer_idx
-            elif self.game_stage == GameStage.PRE_FLOP:
-                # preflop：大盲下一位（UTG）先行动
-                start = (dealer_idx + 3) % n
-            else:
-                # 翻牌后：庄家下一位（小盲位）先行动
-                start = (dealer_idx + 1) % n
-            
-            for i in range(n):
-                player_index = (start + i) % n
-                player = active[player_index]
-                
-                print(f"检查活跃玩家[{player_index}] {player.nickname}：状态={player.status.value}, 投注=${player.current_bet}, 已行动={player.has_acted}, 筹码=${player.chips}")
-                
-                # 检查玩家是否需要行动
-                needs_action = (not player.has_acted or 
-                              (player.current_bet < self.current_bet and player.chips > 0))
-                
-                if needs_action:
-                    print(f"找到需要行动的玩家：{player.nickname}")
-                    return player
-        
-        print("没有找到需要行动的玩家")
+            # 翻牌后：庄家下一位先行动
+            start = (dealer_idx + 1) % n
+
+        for i in range(n):
+            player = order[(start + i) % n]
+            if player not in can_act:
+                continue
+            if not player.has_acted or player.current_bet < self.current_bet:
+                return player
+
         return None
     
     def get_table_state(self, player_id: Optional[str] = None) -> Dict:
@@ -906,8 +855,11 @@ class Table:
             'pot': self.pot,
             'current_bet': self.current_bet,
             'current_player_id': current_player.id if current_player else None,
+            'min_bet': self.min_bet(),
+            'min_raise_to': self.min_raise_to(),
             'players': [p.to_dict(include_hole_cards=(p.id == player_id)) for p in self.players],
-            'can_start': len(self.players) >= 2 and self.game_stage == GameStage.WAITING,
+            'can_start': (len([p for p in self.players if p.chips > 0 and p.status != PlayerStatus.DISCONNECTED]) >= 2
+                          and self.game_stage == GameStage.WAITING),
             'created_at': self.created_at,
             'last_activity': self.last_activity
         }
@@ -915,22 +867,26 @@ class Table:
     def is_betting_round_complete(self) -> bool:
         """检查当前投注回合是否完成"""
         # 区分能继续行动的玩家和全下玩家
-        playing_players = [p for p in self.players if p.status == PlayerStatus.PLAYING and p.chips > 0]
-        all_in_players = [p for p in self.players if p.status == PlayerStatus.ALL_IN]
-        
+        contenders = [p for p in self.players if p.status in (PlayerStatus.PLAYING, PlayerStatus.ALL_IN)]
+        playing_players = [p for p in contenders if p.status == PlayerStatus.PLAYING and p.chips > 0]
+        all_in_players = [p for p in contenders if p.status == PlayerStatus.ALL_IN]
+
         print(f"投注回合检查: 可行动玩家={len(playing_players)}, 全下玩家={len(all_in_players)}")
-        
-        # 如果没有可以继续行动的玩家，回合结束
-        if len(playing_players) <= 1:
-            print("只剩一个或零个可行动玩家，投注回合结束")
+
+        # 只剩一名未弃牌玩家，或没有人还能行动
+        if len(contenders) <= 1 or not playing_players:
             return True
-        
+
+        # 只剩一名能行动的玩家：跟平（或无需跟注）后回合结束，欠注时必须先跟注或弃牌
+        if len(playing_players) == 1:
+            return playing_players[0].current_bet >= self.current_bet
+
         # 检查所有可以行动的玩家是否都已行动且投注相等
         players_needing_action = []
-        
+
         for player in playing_players:
             # 如果玩家还有筹码但投注不相等，或者还未行动，则回合未完成
-            if not player.has_acted or (player.current_bet < self.current_bet and player.chips > 0):
+            if not player.has_acted or player.current_bet < self.current_bet:
                 players_needing_action.append(f"{player.nickname}(投注${player.current_bet}, 行动状态:{player.has_acted})")
         
         if players_needing_action:
@@ -977,10 +933,11 @@ class Table:
         else:
             return False
         
-        # 重置当前投注和玩家下注金额，以及行动状态
+        # 重置当前投注和玩家下注金额，以及行动状态（全下玩家的本轮投注也清零，总投入保留在 total_bet）
         self.current_bet = 0
+        self.last_raise_size = self.min_bet()
         for player in self.players:
-            if player.status == PlayerStatus.PLAYING:
+            if player.status in (PlayerStatus.PLAYING, PlayerStatus.ALL_IN):
                 player.current_bet = 0
                 player.has_acted = False  # 重置行动状态
         
@@ -1002,156 +959,172 @@ class Table:
         
         return False
     
+    def _hand_str(self, player: Player) -> str:
+        return " ".join(f"{c.rank.symbol}{c.suit.value}" for c in player.hole_cards)
+
+    def _run_out_board(self):
+        """所有人都无法继续下注时，把剩余公共牌发完"""
+        missing = 5 - len(self.community_cards)
+        if missing > 0:
+            self.community_cards.extend(self.deck.deal_cards(missing))
+
+    def _build_pots(self, contenders: List[Player]) -> List[Dict]:
+        """
+        按每位玩家本手牌总投入(total_bet)拆分主池/边池。
+        弃牌玩家的投入进入对应层级的池子，但没有赢取资格。
+        """
+        contributors = [p for p in self._participants() if p.total_bet > 0]
+        levels = sorted({p.total_bet for p in contenders if p.total_bet > 0})
+        pots = []
+        prev = 0
+        for level in levels:
+            amount = sum(min(p.total_bet, level) - min(p.total_bet, prev) for p in contributors)
+            eligible = [p for p in contenders if p.total_bet >= level]
+            if amount > 0:
+                pots.append({'amount': amount, 'eligible': eligible})
+            prev = level
+        # 弃牌玩家超过所有在局玩家投入的部分（极少见）并入最后一个池
+        leftover = sum(max(0, p.total_bet - prev) for p in contributors)
+        if leftover and pots:
+            pots[-1]['amount'] += leftover
+        # 与实际底池核对，防止数据不一致导致筹码凭空增减
+        diff = self.pot - sum(p['amount'] for p in pots)
+        if diff and pots:
+            print(f"⚠️ 底池核对差额 ${diff}，并入主池")
+            pots[0]['amount'] += diff
+        return pots
+
+    def _odd_chip_order(self, players: List[Player]) -> List[Player]:
+        """平分底池的零头按庄家左手边开始的顺序分配"""
+        order = [p for p in self._participants() if p in players]
+        dealer_idx = next((i for i, p in enumerate(self._participants()) if p.is_dealer), -1)
+        n = max(1, len(self._participants()))
+        return sorted(order, key=lambda p: (self._participants().index(p) - dealer_idx - 1) % n)
+
     def _determine_winner(self) -> Dict:
-        """确定获胜者，返回详细的摊牌信息"""
-        # 包括全下的玩家在胜负判定中（ALL_IN 和 PLAYING 状态）
-        active_players = [p for p in self.players if p.status in [PlayerStatus.PLAYING, PlayerStatus.ALL_IN]]
-        
-        print(f"🏆 _determine_winner 被调用:")
-        print(f"  - 活跃玩家数: {len(active_players)}")
-        print(f"  - 游戏阶段: {self.game_stage.value}")
-        print(f"  - 公共牌数量: {len(self.community_cards)}")
-        
+        """结算本手牌：支持弃牌获胜、摊牌比牌、边池、平分底池与退还无人跟注的筹码"""
+        contenders = [p for p in self.players if p.status in (PlayerStatus.PLAYING, PlayerStatus.ALL_IN)]
+        total_pot = self.pot
+
         showdown_info = {
             'winner': None,
+            'winners': [],
+            'pots': [],
             'showdown_players': [],
             'community_cards': [card.to_dict() for card in self.community_cards],
-            'pot': self.pot,
-            'is_showdown': len(active_players) > 1
+            'pot': total_pot,
+            'is_showdown': len(contenders) > 1
         }
-        
-        if len(active_players) == 1:
-            # 只有一个活跃玩家，直接获胜（没有摊牌）
-            winner = active_players[0]
-            winner.chips += self.pot
+
+        if not contenders:
+            print("⚠️ 结算时没有在局玩家，底池保留")
             self.game_stage = GameStage.FINISHED
-            
-            showdown_info['winner'] = winner
+            return showdown_info
+
+        winnings: Dict[str, int] = {p.id: 0 for p in contenders}
+        returned: Dict[str, int] = {p.id: 0 for p in contenders}
+        hands = {}
+
+        if len(contenders) == 1:
+            # 其他人都弃牌：剩下的玩家拿走整个底池（其中自己未被跟注的部分属于退还）
+            winner = contenders[0]
+            others_max = max([p.total_bet for p in self._participants() if p is not winner] or [0])
+            uncalled = min(max(0, winner.total_bet - others_max), total_pot)
+            winner.chips += total_pot
+            returned[winner.id] = uncalled
+            winnings[winner.id] = total_pot - uncalled
             showdown_info['is_showdown'] = False
             showdown_info['win_reason'] = 'others_folded'
-            
-            # 即使其他人弃牌，也显示获胜者的手牌（如果有的话）
-            if len(winner.hole_cards) == 2:
-                card1_str = f"{winner.hole_cards[0].rank.symbol}{winner.hole_cards[0].suit.value}"
-                card2_str = f"{winner.hole_cards[1].rank.symbol}{winner.hole_cards[1].suit.value}"
-                
-                # 如果有足够的公共牌，评估手牌
-                hand_description = "未知牌型"
-                if len(self.community_cards) >= 3:
-                    from .hand_evaluator import HandEvaluator
-                    hand_rank, best_cards = HandEvaluator.evaluate_hand(winner.hole_cards, self.community_cards)
-                    hand_description = HandEvaluator.hand_to_string((hand_rank, best_cards))
-                
-                # 创建获胜者的摊牌信息
-                winner_info = {
-                    'player': winner,
-                    'player_id': winner.id,
-                    'nickname': winner.nickname,
-                    'is_bot': winner.is_bot,
-                    'hole_cards': [card.to_dict() for card in winner.hole_cards],
-                    'hole_cards_str': f"{card1_str} {card2_str}",
-                    'hand_description': hand_description,
-                    'rank': 1,
-                    'result': 'winner',
-                    'winnings': self.pot
-                }
-                
-                showdown_info['showdown_players'] = [winner_info]
-                
-                player_type = "🤖" if winner.is_bot else "👤"
-                print(f"{player_type} {winner.nickname} 获胜（其他玩家弃牌），手牌: {card1_str} {card2_str}，赢得底池 ${self.pot}")
-            else:
-                print(f"玩家 {winner.nickname} 获胜（其他玩家弃牌），赢得底池 ${self.pot}")
-            
-            return showdown_info
-        
-        if len(active_players) > 1 and self.game_stage == GameStage.SHOWDOWN:
-            # 摊牌阶段 - 显示所有玩家手牌
+            showdown_info['pots'] = [{'amount': total_pot - uncalled, 'winners': [winner.nickname]}]
+            if len(self.community_cards) >= 3 and len(winner.hole_cards) == 2:
+                hands[winner.id] = HandEvaluator.evaluate_hand(winner.hole_cards, self.community_cards)
+            print(f"{'🤖' if winner.is_bot else '👤'} {winner.nickname} 获胜（其他玩家弃牌），赢得 ${winnings[winner.id]}"
+                  + (f"，退还未被跟注的 ${uncalled}" if uncalled else ""))
+        else:
+            # 摊牌：先把公共牌发完，再逐个池子比牌
+            self._run_out_board()
+            self.game_stage = GameStage.SHOWDOWN
+            showdown_info['community_cards'] = [card.to_dict() for card in self.community_cards]
+            for p in contenders:
+                hands[p.id] = HandEvaluator.evaluate_hand(p.hole_cards, self.community_cards)
+
             print("=" * 60)
-            print("🃏 摊牌阶段 - 所有玩家手牌:")
-            
-            # 显示公共牌
-            community_str = " ".join([f"{card.rank.symbol}{card.suit.value}" for card in self.community_cards])
-            print(f"🎴 公共牌: {community_str}")
-            print("-" * 40)
-            
-            # 比较手牌强度
-            from .hand_evaluator import HandEvaluator
-            
-            player_hands = []
-            
-            for player in active_players:
-                if len(player.hole_cards) == 2:
-                    card1_str = f"{player.hole_cards[0].rank.symbol}{player.hole_cards[0].suit.value}"
-                    card2_str = f"{player.hole_cards[1].rank.symbol}{player.hole_cards[1].suit.value}"
-                    
-                    hand_rank, best_cards = HandEvaluator.evaluate_hand(player.hole_cards, self.community_cards)
-                    hand_description = HandEvaluator.hand_to_string((hand_rank, best_cards))
-                    player_type = "🤖" if player.is_bot else "👤"
-                    
-                    print(f"{player_type} {player.nickname}: {card1_str} {card2_str} -> {hand_description}")
-                    
-                    player_hand_info = {
-                        'player': player,
-                        'player_id': player.id,
-                        'nickname': player.nickname,
-                        'is_bot': player.is_bot,
-                        'hole_cards': [card.to_dict() for card in player.hole_cards],
-                        'hole_cards_str': f"{card1_str} {card2_str}",
-                        'hand_rank': hand_rank,
-                        'hand_name': hand_rank.value[1],
-                        'hand_description': hand_description,
-                        'rank_value': hand_rank.rank_value,
-                        'kickers': best_cards
-                    }
-                    
-                    player_hands.append(player_hand_info)
-            
-            # 按手牌强度排序（降序，最强的在前面）
-            player_hands.sort(key=lambda x: (x['rank_value'], x['kickers']), reverse=True)
-            
-            # 确定获胜者和排名
-            winner = None
-            if player_hands:
-                winner = player_hands[0]['player']
-                winner.chips += self.pot
-                self.game_stage = GameStage.FINISHED
-                
-                # 添加排名信息
-                for i, hand_info in enumerate(player_hands):
-                    hand_info['rank'] = i + 1
-                    hand_info['final_chips'] = hand_info['player'].chips
-                    if i == 0:
-                        hand_info['result'] = 'winner'
-                        hand_info['winnings'] = self.pot
-                    else:
-                        hand_info['result'] = 'loser'
-                        hand_info['winnings'] = 0
-                
-                showdown_info['winner'] = winner
-                showdown_info['showdown_players'] = player_hands
-                showdown_info['win_reason'] = 'best_hand'
-                
-                print("-" * 40)
-                print("🏆 摊牌结果排名:")
-                for i, hand_info in enumerate(player_hands):
-                    rank_emoji = "🥇" if i == 0 else "🥈" if i == 1 else "🥉" if i == 2 else f"{i+1}."
-                    player_type = "🤖" if hand_info['is_bot'] else "👤"
-                    print(f"{rank_emoji} {player_type} {hand_info['nickname']}: {hand_info['hand_description']} "
-                          f"({'赢得 $' + str(self.pot) if i == 0 else '输掉'})")
-                
-                player_type = "🤖" if winner.is_bot else "👤"
-                print(f"🏆 {player_type} {winner.nickname} 获胜！手牌：{player_hands[0]['hand_description']}，赢得底池 ${self.pot}")
-                print("=" * 60)
-        
-        # 调试：打印最终的摊牌信息
-        print(f"🏁 摊牌信息总结:")
-        print(f"  - is_showdown: {showdown_info['is_showdown']}")
-        print(f"  - showdown_players数量: {len(showdown_info['showdown_players'])}")
-        print(f"  - winner: {showdown_info['winner'].nickname if showdown_info['winner'] else None}")
-        
+            print(f"🃏 摊牌 - 公共牌: {' '.join(f'{c.rank.symbol}{c.suit.value}' for c in self.community_cards)}")
+            for p in contenders:
+                print(f"  {'🤖' if p.is_bot else '👤'} {p.nickname}: {self._hand_str(p)} -> "
+                      f"{HandEvaluator.hand_to_string(hands[p.id])}（投入 ${p.total_bet}）")
+
+            for index, pot in enumerate(self._build_pots(contenders)):
+                eligible = pot['eligible']
+                if len(eligible) == 1:
+                    # 只有一人有资格的池子 = 超出其他人承受范围、无人跟注的部分，原样退还
+                    eligible[0].chips += pot['amount']
+                    returned[eligible[0].id] += pot['amount']
+                    print(f"  ↩️ 退还 {eligible[0].nickname} 无人跟注的 ${pot['amount']}")
+                    continue
+                best = eligible[0]
+                for p in eligible[1:]:
+                    if HandEvaluator.compare_hands(hands[p.id], hands[best.id]) > 0:
+                        best = p
+                pot_winners = [p for p in eligible if HandEvaluator.compare_hands(hands[p.id], hands[best.id]) == 0]
+                share, remainder = divmod(pot['amount'], len(pot_winners))
+                for i, p in enumerate(self._odd_chip_order(pot_winners)):
+                    amount = share + (1 if i < remainder else 0)
+                    p.chips += amount
+                    winnings[p.id] += amount
+                name = '主池' if not showdown_info['pots'] else f"边池{len(showdown_info['pots'])}"
+                showdown_info['pots'].append({'amount': pot['amount'], 'winners': [p.nickname for p in pot_winners]})
+                print(f"  💰 {name} ${pot['amount']}（{len(eligible)} 人争夺）→ {'、'.join(p.nickname for p in pot_winners)}"
+                      + ("（平分）" if len(pot_winners) > 1 else ""))
+            print("=" * 60)
+            showdown_info['win_reason'] = 'best_hand'
+
+        # 组装展示信息：按牌力从高到低排序，并列时名次相同
+        def strength(p):
+            hand = hands.get(p.id)
+            return (hand[0].rank_value, hand[1]) if hand else (0, [])
+        ordered = sorted(contenders, key=strength, reverse=True)
+        rank = 0
+        prev_hand = None
+        for i, p in enumerate(ordered):
+            hand = hands.get(p.id)
+            if hand is None or prev_hand is None or HandEvaluator.compare_hands(hand, prev_hand) != 0:
+                rank = i + 1
+            prev_hand = hand
+            showdown_info['showdown_players'].append({
+                'player': p,
+                'player_id': p.id,
+                'nickname': p.nickname,
+                'is_bot': p.is_bot,
+                'hole_cards': [card.to_dict() for card in p.hole_cards],
+                'hole_cards_str': self._hand_str(p),
+                'hand_description': HandEvaluator.hand_to_string(hand) if hand else "未知牌型",
+                'hand_name': hand[0].value[1] if hand else "",
+                'rank_value': hand[0].rank_value if hand else 0,
+                'rank': rank,
+                'result': 'winner' if winnings[p.id] > 0 else 'loser',
+                'winnings': winnings[p.id],
+                'returned': returned[p.id],
+                'final_chips': p.chips
+            })
+
+        winners = sorted((p for p in contenders if winnings[p.id] > 0), key=lambda p: winnings[p.id], reverse=True)
+        if not winners:
+            # 例如其他人只投入了 0：仍然视拿回筹码最多的人为本手牌赢家
+            winners = sorted(contenders, key=lambda p: returned[p.id], reverse=True)[:1]
+        showdown_info['winner'] = winners[0]
+        showdown_info['winners'] = [{'player_id': p.id, 'nickname': p.nickname, 'amount': winnings[p.id], 'chips': p.chips}
+                                    for p in winners]
+
+        # 筹码输光的玩家转为观战，不再参与之后的牌局
+        for p in self.hand_players:
+            if p.chips <= 0 and p in self.players and p.status != PlayerStatus.DISCONNECTED:
+                p.status = PlayerStatus.BROKE
+                print(f"💸 {p.nickname} 筹码输光，转为观战")
+
+        self.game_stage = GameStage.FINISHED
         return showdown_info
-    
+
     def process_game_flow(self) -> Dict:
         """处理游戏流程，返回状态更新"""
         result = {
@@ -1191,6 +1164,10 @@ class Table:
                 # 进入下一阶段
                 print(f"进入下一阶段，当前阶段: {self.game_stage.value}")
                 if self.advance_to_next_stage():
+                    # 没有人还能下注（其他人都已全下）时，直接把剩余公共牌发完进入摊牌
+                    while self.game_stage != GameStage.SHOWDOWN and self.is_betting_round_complete():
+                        print("无人可继续下注，自动发下一张公共牌")
+                        self.advance_to_next_stage()
                     result['stage_changed'] = True
                     result['message'] = f"进入 {self.game_stage.value} 阶段"
                     print(f"成功进入 {self.game_stage.value} 阶段")

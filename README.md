@@ -35,7 +35,7 @@ A web-based multiplayer Texas Hold'em game built with Flask + Socket.IO — play
 - 记牌助手：已出现的牌与剩余牌组
 - 玩家卡片显示当前下注、本手累计投入及庄家 / 小盲 / 大盲徽章
 - 下注金额滑块，与输入框双向联动
-- 零筹码玩家可继续观战
+- 按真实规则结算：主池 / 边池、平分底池、退还无人跟注的筹码；筹码输光的玩家转为观战
 
 **数据与音乐**
 - SQLite 持久化玩家、房间与牌局状态，服务重启后可恢复
@@ -100,6 +100,7 @@ python app.py
 ├── player_persistence.py   # 玩家筹码持久化
 ├── table_state_manager.py  # 牌桌状态保存与恢复
 ├── game_logger.py          # 牌局与摊牌记录
+├── tests/                  # 规则与机器人对局测试（python tests/test_table_rules.py）
 ├── templates/              # 页面：主页、大厅、牌桌
 └── static/                 # 前端脚本（i18n、音乐播放器）、样式与音频
 ```
@@ -143,7 +144,7 @@ gunicorn --worker-class eventlet -w 1 --bind 0.0.0.0:8888 app:app
 - Card tracker showing revealed cards and the remaining deck
 - Player cards show current bet, total put in this hand, and Dealer / SB / BB badges
 - Bet slider synced with the amount input
-- Players with zero chips can keep watching
+- Real settlement rules: main / side pots, split pots, uncalled bets returned; busted players sit out and watch
 
 **Data & music**
 - SQLite persistence for players, rooms and table state, restored after a server restart
@@ -208,6 +209,7 @@ Open <http://localhost:8888> and enter a nickname. The server prints a "📱 局
 ├── player_persistence.py   # Player chip persistence
 ├── table_state_manager.py  # Table state save / restore
 ├── game_logger.py          # Hand and showdown logging
+├── tests/                  # Rule and bot-game tests (python tests/test_table_rules.py)
 ├── templates/              # Pages: home, lobby, table
 └── static/                 # Frontend scripts (i18n, music player), styles and audio
 ```
