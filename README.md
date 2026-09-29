@@ -30,7 +30,7 @@ A web-based multiplayer Texas Hold'em game built with Flask + Socket.IO — play
 - 房间创建者可一键解散房间
 - 中英文界面一键切换
 
-**辅助**
+**辅助**（仅纯人机练习时启用；牌桌上有 2 名及以上真人时自动关闭，保证公平）
 - 牌型分析面板：公共牌最佳牌型、我的当前牌型与单挑胜率、对手可能牌型分布
 - 记牌助手：已出现的牌与剩余牌组
 - 玩家卡片显示当前下注、本手累计投入及庄家 / 小盲 / 大盲徽章
@@ -136,7 +136,7 @@ gunicorn --worker-class eventlet -w 1 --bind 0.0.0.0:8888 app:app
 - Room creators can dissolve a room with one click
 - One-click Chinese / English UI switch
 
-**Assistance**
+**Assistance** (bot practice only — turned off automatically when 2 or more humans are at the table)
 - Hand analysis panel: best board hand, your current hand and heads-up equity, opponent hand distribution
 - Card tracker showing revealed cards and the remaining deck
 - Player cards show current bet, total put in this hand, and Dealer / SB / BB badges

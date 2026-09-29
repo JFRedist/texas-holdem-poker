@@ -16,6 +16,10 @@ This file records the changes made in this fork relative to the upstream reposit
 - **运行模式可配置**：通过 `POKER_HOST` / `POKER_PORT` / `POKER_DEBUG` / `POKER_ASYNC_MODE` 环境变量设置监听地址、端口、debug 与异步模式；`threading` 模式不依赖 eventlet。
   **Configurable runtime**: host, port, debug and async mode via environment variables; `threading` mode works without eventlet.
 
+### 变更 / Changed
+- **牌型分析仅限人机练习**：牌桌上有 2 名及以上真人时，牌型分析面板关闭并显示提示；服务端胜率计算与记牌接口同样拒绝请求（此前胜率接口无任何权限校验）。
+  **Hand analysis in bot practice only**: disabled with 2+ humans at the table, enforced server-side for the win-probability and card-tracking APIs as well.
+
 ### 修复 / Fixed
 - **音乐无法切换曲目**：`window.musicPlayer` 在播放器实例创建前就被赋值为 undefined，导致牌桌页所有切歌逻辑（轮到你行动、手牌结束、离开牌桌）从未生效。
   **Music never switched tracks**: `window.musicPlayer` was exported before the player existed.

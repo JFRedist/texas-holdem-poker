@@ -251,6 +251,7 @@
         '对单对手胜率:': 'Win rate:',
         '公共牌最佳:': 'Best board hand:',
         '翻牌后显示牌型分析': 'Analysis appears after the flop',
+        '多名真人玩家同桌，牌型分析已关闭（仅人机练习可用）': 'Hand analysis is off with 2+ human players (bot practice only)',
         '获胜！赢得 ${0}': 'wins ${0}!',
         '获胜结果（其他玩家弃牌）': 'Result (everyone folded)',
         '摊牌结果': 'Showdown Result',

@@ -321,6 +321,16 @@
         const metaEl = document.getElementById('analysisMeta');
         if (!panel || !currentTableState) return;
 
+        // 仅纯人机练习（最多 1 名真人）启用；2 名及以上真人同桌时关闭，保证公平
+        const humanCount = (currentTableState.players || []).filter(p => !p.is_bot).length;
+        if (humanCount >= 2) {
+            if (boardBestEl) boardBestEl.innerHTML = '<span class="text-gray-500">🔒 ' + I18N.t('多名真人玩家同桌，牌型分析已关闭（仅人机练习可用）') + '</span>';
+            if (myStrengthEl) myStrengthEl.innerHTML = '';
+            if (oppDistEl) oppDistEl.innerHTML = '';
+            if (metaEl) metaEl.textContent = '';
+            return;
+        }
+
         const board = currentTableState.community_cards || [];
         const stage = currentTableState.game_stage || '';
         if (board.length < 3 || ['waiting', 'pre_flop', 'finished'].includes(stage)) {

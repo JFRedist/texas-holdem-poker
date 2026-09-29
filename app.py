@@ -316,6 +316,11 @@ def handle_restart_needed(table_id: str, state_type, data: Dict):
         mark_restart_completed(table_id, hand_number, success=False)
 
 
+def is_bot_practice(table) -> bool:
+    """纯人机练习：牌桌上最多只有 1 名真人玩家。牌型分析/胜率等辅助功能仅在此时可用"""
+    return sum(1 for p in table.players if not p.is_bot) <= 1
+
+
 def validate_nickname(nickname: str) -> bool:
     """验证昵称格式"""
     if not nickname or len(nickname.strip()) == 0:
@@ -719,6 +724,8 @@ def api_card_tracking():
         if not table:
             # 尝试从数据库恢复（略），这里只查内存
             return jsonify({'success': False, 'message': '房间不存在'}), 404
+        if not is_bot_practice(table):
+            return jsonify({'success': False, 'message': '多名真人玩家同桌，辅助功能已关闭'}), 403
 
         info = table.get_card_tracking_info()
         return jsonify({'success': True, 'data': info})
@@ -729,7 +736,7 @@ def api_card_tracking():
 
 @app.route('/api/win_probability', methods=['POST'])
 def api_win_probability():
-    """胜率计算API，所有玩家可用"""
+    """胜率计算API，仅纯人机练习时可用"""
     try:
         data = request.get_json() or {}
         table_id = data.get('table_id')
@@ -741,6 +748,8 @@ def api_win_probability():
         table = tables.get(table_id)
         if not table:
             return jsonify({'success': False, 'message': '房间不存在'}), 404
+        if not is_bot_practice(table):
+            return jsonify({'success': False, 'message': '多名真人玩家同桌，辅助功能已关闭'}), 403
 
         result = table.calculate_win_probability(player_id)
         if not result:
