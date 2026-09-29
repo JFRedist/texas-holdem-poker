@@ -1,3 +1,187 @@
+/**
+ * 内置合成音乐：static/audio/ 下没有 mp3 文件时，用 Web Audio API 实时生成背景音乐
+ * lobby: 慢速爵士和弦；table: 行走贝斯 + 轻鼓；action: 小调快节奏脉冲
+ */
+class SynthMusic {
+    constructor() {
+        this.ctx = null;
+        this.master = null;
+        this.noiseBuffer = null;
+        this.timer = null;
+        this.track = null;
+        this.step = 0;
+        this.nextTime = 0;
+        this.volume = 0.3;
+        this.patterns = {
+            lobby: {
+                bpm: 70,
+                chords: [
+                    { bass: 36, notes: [60, 64, 67, 71] },  // Cmaj7
+                    { bass: 33, notes: [57, 60, 64, 67] },  // Am7
+                    { bass: 29, notes: [53, 57, 60, 64] },  // Fmaj7
+                    { bass: 31, notes: [55, 59, 62, 65] }   // G7
+                ]
+            },
+            table: {
+                bpm: 96,
+                chords: [
+                    { bass: 38, notes: [53, 57, 60, 64] },  // Dm7
+                    { bass: 43, notes: [53, 55, 59, 62] },  // G7
+                    { bass: 36, notes: [52, 55, 59, 60] },  // Cmaj7
+                    { bass: 45, notes: [55, 57, 61, 64] }   // A7
+                ]
+            },
+            action: {
+                bpm: 126,
+                chords: [
+                    { bass: 33, notes: [57, 60, 64] },  // Am
+                    { bass: 29, notes: [57, 60, 65] },  // F
+                    { bass: 31, notes: [55, 59, 62] },  // G
+                    { bass: 28, notes: [56, 59, 64] }   // E
+                ]
+            }
+        };
+    }
+
+    get playing() {
+        return this.timer !== null;
+    }
+
+    ensureContext() {
+        if (this.ctx) return;
+        const Ctx = window.AudioContext || window.webkitAudioContext;
+        if (!Ctx) return;
+        this.ctx = new Ctx();
+        this.master = this.ctx.createGain();
+        this.master.gain.value = this.volume * 1.5;
+        this.master.connect(this.ctx.destination);
+
+        // 白噪声（用于鼓刷/踩镲）
+        const length = this.ctx.sampleRate * 0.2;
+        this.noiseBuffer = this.ctx.createBuffer(1, length, this.ctx.sampleRate);
+        const data = this.noiseBuffer.getChannelData(0);
+        for (let i = 0; i < length; i++) data[i] = Math.random() * 2 - 1;
+    }
+
+    // 返回 true 表示已开始发声；浏览器阻止自动播放时返回 false
+    async start(track) {
+        this.ensureContext();
+        if (!this.ctx || !this.patterns[track]) return false;
+        if (this.ctx.state !== 'running') {
+            // 没有用户手势时 resume() 可能一直挂起，最多等 300ms
+            await Promise.race([this.ctx.resume(), new Promise(r => setTimeout(r, 300))]);
+        }
+        if (this.ctx.state !== 'running') return false;
+
+        if (this.track !== track || !this.playing) {
+            this.stop();
+            this.track = track;
+            this.step = 0;
+            this.nextTime = this.ctx.currentTime + 0.1;
+            this.master.gain.cancelScheduledValues(this.ctx.currentTime);
+            this.master.gain.setTargetAtTime(this.volume * 1.5, this.ctx.currentTime, 0.1);
+            this.timer = setInterval(() => this.schedule(), 50);
+            this.schedule();
+        }
+        return true;
+    }
+
+    stop() {
+        if (this.timer !== null) {
+            clearInterval(this.timer);
+            this.timer = null;
+        }
+        if (this.ctx) {
+            // 快速淡出已排程的音符，避免爆音
+            this.master.gain.setTargetAtTime(0, this.ctx.currentTime, 0.05);
+        }
+    }
+
+    setVolume(volume) {
+        this.volume = volume;
+        if (this.ctx && this.playing) {
+            this.master.gain.setTargetAtTime(volume * 1.5, this.ctx.currentTime, 0.05);
+        }
+    }
+
+    // 提前 0.2 秒排程即将到来的八分音符
+    schedule() {
+        const pattern = this.patterns[this.track];
+        const stepDur = 60 / pattern.bpm / 2;
+        while (this.nextTime < this.ctx.currentTime + 0.2) {
+            const chord = pattern.chords[Math.floor(this.step / 8) % pattern.chords.length];
+            const nextChord = pattern.chords[Math.floor(this.step / 8 + 1) % pattern.chords.length];
+            this.playStep(this.track, this.step % 8, chord, nextChord, this.nextTime, stepDur);
+            this.nextTime += stepDur;
+            this.step++;
+        }
+    }
+
+    playStep(track, s, chord, nextChord, t, stepDur) {
+        const bar = stepDur * 8;
+        if (track === 'lobby') {
+            if (s === 0) {
+                chord.notes.forEach(n => this.tone(n, t, bar * 0.95, 'triangle', 0.05, 900));
+                this.tone(chord.bass, t, stepDur * 3.5, 'sine', 0.22, 400);
+            }
+            if (s === 4) this.tone(chord.bass + 7, t, stepDur * 3.5, 'sine', 0.18, 400);
+            if ([2, 3, 5, 7].includes(s) && Math.random() < 0.7) {
+                const n = chord.notes[Math.floor(Math.random() * chord.notes.length)] + 12;
+                this.tone(n, t, stepDur * 1.8, 'sine', 0.06, 2500);
+            }
+        } else if (track === 'table') {
+            // 行走贝斯：根音、三音、五音、下一和弦的半音经过音
+            if (s % 2 === 0) {
+                const walk = [chord.bass, chord.bass + 4, chord.bass + 7, nextChord.bass - 1][s / 2];
+                this.tone(walk, t, stepDur * 1.7, 'triangle', 0.25, 600);
+            }
+            if (s === 0 || s === 3) {
+                chord.notes.forEach(n => this.tone(n, t, stepDur * 0.9, 'triangle', 0.045, 1400));
+            }
+            if (s === 2 || s === 6) this.noise(t, 0.08, 0.05, 7000);
+            if (s % 2 === 1) this.noise(t, 0.03, 0.02, 9000);
+        } else if (track === 'action') {
+            this.tone(chord.bass, t, stepDur * 0.7, 'sawtooth', 0.12, 500);
+            if (s === 0) chord.notes.forEach(n => this.tone(n, t, bar * 0.9, 'sawtooth', 0.025, 1200));
+            if (s % 2 === 1) {
+                const n = chord.notes[(s >> 1) % chord.notes.length] + 12;
+                this.tone(n, t, stepDur * 0.5, 'square', 0.03, 2000);
+            }
+            this.noise(t, 0.03, s % 2 === 0 ? 0.04 : 0.02, 8000);
+        }
+    }
+
+    tone(midi, t, dur, type, gain, cutoff) {
+        const osc = this.ctx.createOscillator();
+        const filter = this.ctx.createBiquadFilter();
+        const env = this.ctx.createGain();
+        osc.type = type;
+        osc.frequency.value = 440 * Math.pow(2, (midi - 69) / 12);
+        filter.type = 'lowpass';
+        filter.frequency.value = cutoff;
+        env.gain.setValueAtTime(0, t);
+        env.gain.linearRampToValueAtTime(gain, t + Math.min(0.03, dur / 4));
+        env.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+        osc.connect(filter).connect(env).connect(this.master);
+        osc.start(t);
+        osc.stop(t + dur + 0.05);
+    }
+
+    noise(t, dur, gain, cutoff) {
+        const src = this.ctx.createBufferSource();
+        const filter = this.ctx.createBiquadFilter();
+        const env = this.ctx.createGain();
+        src.buffer = this.noiseBuffer;
+        filter.type = 'highpass';
+        filter.frequency.value = cutoff;
+        env.gain.setValueAtTime(gain, t);
+        env.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+        src.connect(filter).connect(env).connect(this.master);
+        src.start(t);
+        src.stop(t + dur + 0.02);
+    }
+}
+
 class MusicPlayer {
     constructor() {
         this.audio = null;
@@ -7,7 +191,10 @@ class MusicPlayer {
         this.position = 'top-right'; // 默认位置
         this.isVisible = true; // 控制面板是否可见
         this.promptShown = false; // 当前页面是否已显示过播放提示
-        this.audioMissing = false; // 音乐文件是否缺失（缺失时静默，不再弹窗）
+        this.synth = new SynthMusic(); // mp3 缺失时使用的内置合成音乐
+        this.useSynth = false;
+        this.wantPlay = false; // 用户期望播放（被浏览器拦截自动播放时，首次点击页面后自动开始）
+        this.gestureUnlockArmed = false;
         this.tracks = {
             lobby: '/static/audio/lobby-music.mp3',
             table: '/static/audio/table-music.mp3',
@@ -40,6 +227,7 @@ class MusicPlayer {
         this.audio.loop = true;
         this.audio.volume = savedMuted ? 0 : this.volume;
         this.audio.preload = 'auto';
+        this.synth.setVolume(this.audio.volume);
         
         // 创建音乐控制界面
         this.createControlPanel();
@@ -228,7 +416,9 @@ class MusicPlayer {
     loadTrack(trackName) {
         if (this.tracks[trackName] && this.currentTrack !== trackName) {
             this.currentTrack = trackName;
-            this.audio.src = this.tracks[trackName];
+            if (!this.useSynth) {
+                this.audio.src = this.tracks[trackName];
+            }
             this.updateTrackInfo(trackName);
         }
     }
@@ -247,42 +437,79 @@ class MusicPlayer {
     }
     
     play() {
+        this.wantPlay = true;
+
+        if (this.useSynth) {
+            this.synth.start(this.currentTrack || 'lobby').then((started) => {
+                if (started) {
+                    this.isPlaying = true;
+                    this.updatePlayButton();
+                } else {
+                    this.onAutoplayBlocked();
+                }
+            });
+            return;
+        }
+
         if (this.audio && this.audio.src) {
             const playPromise = this.audio.play();
-            
+
             if (playPromise !== undefined) {
                 playPromise.then(() => {
                     console.log('🎵 背景音乐开始播放');
                 }).catch((error) => {
+                    // 文件缺失时 error 事件会切换到合成音乐，这里不提示
+                    if (this.useSynth || error.name === 'NotSupportedError') return;
                     console.warn('🎵 自动播放被阻止:', error);
-                    if (!this.audioMissing) {
-                        this.showPlayButton();
-                    }
+                    this.onAutoplayBlocked();
                 });
             }
         }
     }
-    
+
+    // 浏览器拦截自动播放：提示一次，并在用户第一次点击/按键时自动开始播放
+    onAutoplayBlocked() {
+        this.showPlayButton();
+        if (this.gestureUnlockArmed) return;
+        this.gestureUnlockArmed = true;
+        const unlock = () => {
+            document.removeEventListener('pointerdown', unlock, true);
+            document.removeEventListener('keydown', unlock, true);
+            this.gestureUnlockArmed = false;
+            if (this.wantPlay && !this.isPlaying) {
+                this.play();
+            }
+        };
+        document.addEventListener('pointerdown', unlock, true);
+        document.addEventListener('keydown', unlock, true);
+    }
+
     pause() {
-        if (this.audio) {
-            this.wasPlayingBeforeHide = this.isPlaying;
+        this.wasPlayingBeforeHide = this.isPlaying;
+        if (this.useSynth) {
+            this.synth.stop();
+            this.isPlaying = false;
+            this.updatePlayButton();
+        } else if (this.audio) {
             this.audio.pause();
         }
     }
-    
+
     toggle() {
         if (this.isPlaying) {
             this.pause();
+            this.wantPlay = false;
         } else {
             this.play();
         }
     }
-    
+
     setVolume(volume) {
         this.volume = Math.max(0, Math.min(1, volume));
         if (this.audio) {
             this.audio.volume = this.volume;
         }
+        this.synth.setVolume(this.volume);
         
         // 保存到localStorage
         localStorage.setItem('musicVolume', this.volume.toString());
@@ -307,7 +534,8 @@ class MusicPlayer {
             this.audio.volume = 0;
             localStorage.setItem('musicMuted', 'true');
         }
-        
+        this.synth.setVolume(this.audio.volume);
+
         this.updateVolumeIcon();
     }
     
@@ -342,8 +570,6 @@ class MusicPlayer {
     showPlayButton() {
         // 去重：每个页面最多提示一次
         if (this.promptShown) return;
-        // 音乐文件缺失时提示无意义，不弹窗
-        if (this.audioMissing) return;
         // 用户选择过"不再提示"则永久不再弹窗
         if (localStorage.getItem('musicPromptDismissed') === 'true') return;
         this.promptShown = true;
@@ -372,14 +598,17 @@ class MusicPlayer {
     }
     
     handleError() {
-        console.warn('🎵 音乐文件加载失败，使用静默模式');
-        // 标记音乐文件缺失：后续不再弹"点击播放背景音乐"提示
-        this.audioMissing = true;
-        // 隐藏音乐控制面板或显示错误状态
+        if (this.useSynth) return;
+        console.warn('🎵 未找到音乐文件，改用内置合成音乐');
+        this.useSynth = true;
+        this.audio.removeAttribute('src');
         const panel = document.getElementById('music-control-panel');
         if (panel) {
-            panel.style.opacity = '0.5';
-            panel.title = '音乐文件不可用';
+            panel.title = '内置合成音乐（未找到 static/audio/ 下的 mp3 文件）';
+        }
+        // 切换前已经在尝试播放，则直接用合成音乐继续
+        if (this.wantPlay) {
+            this.play();
         }
     }
     
@@ -485,7 +714,7 @@ class MusicPlayer {
     
     // 播放动作音效（短音效，不循环）
     playActionSound(soundType = 'action') {
-        if (this.tracks[soundType]) {
+        if (this.tracks[soundType] && !this.useSynth) {
             const actionAudio = new Audio(this.tracks[soundType]);
             actionAudio.volume = this.volume * 0.7; // 动作音效稍微小声一点
             actionAudio.play().catch(e => console.warn('动作音效播放失败:', e));
@@ -642,7 +871,6 @@ let musicPlayer;
 // 页面加载完成后初始化
 document.addEventListener('DOMContentLoaded', () => {
     musicPlayer = new MusicPlayer();
+    // 导出供外部使用（必须在实例创建后赋值，否则牌桌页的 window.musicPlayer 检查永远为 undefined）
+    window.musicPlayer = musicPlayer;
 });
-
-// 导出供外部使用
-window.musicPlayer = musicPlayer; 

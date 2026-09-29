@@ -9,8 +9,16 @@ This file records the changes made in this fork relative to the upstream reposit
 ## 2026-09-29
 
 ### 新增 / Added
+- **大厅可添加「德州扑克之神」**：创建房间时可直接添加能看到所有手牌的神级机器人（此前只能在牌桌内通过数字选择添加）。
+  **Poker God bots in the lobby**: the create-room dialog can now add God-level bots.
+- **内置合成音乐**：`static/audio/` 没有 mp3 时用 Web Audio API 实时生成大厅 / 牌桌 / 紧张三种背景音乐；自动播放被拦截时，首次点击页面即开始播放。
+  **Built-in synthesized music**: plays when no mp3 files are present; starts on first click if autoplay is blocked.
 - **运行模式可配置**：通过 `POKER_HOST` / `POKER_PORT` / `POKER_DEBUG` / `POKER_ASYNC_MODE` 环境变量设置监听地址、端口、debug 与异步模式；`threading` 模式不依赖 eventlet。
   **Configurable runtime**: host, port, debug and async mode via environment variables; `threading` mode works without eventlet.
+
+### 修复 / Fixed
+- **音乐无法切换曲目**：`window.musicPlayer` 在播放器实例创建前就被赋值为 undefined，导致牌桌页所有切歌逻辑（轮到你行动、手牌结束、离开牌桌）从未生效。
+  **Music never switched tracks**: `window.musicPlayer` was exported before the player existed.
 
 ### 文档 / Docs
 - 重写 README（中英文对齐、补充项目结构与配置说明、修正与代码不符的内容），新增本 CHANGELOG。

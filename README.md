@@ -40,7 +40,7 @@ A web-based multiplayer Texas Hold'em game built with Flask + Socket.IO — play
 **数据与音乐**
 - SQLite 持久化玩家、房间与牌局状态，服务重启后可恢复
 - 摊牌记录与个人统计（胜率、奖金、手牌历史）
-- 根据场景自动切换的背景音乐（大厅 / 牌桌 / 紧张时刻）
+- 根据场景自动切换的背景音乐（大厅 / 牌桌 / 紧张时刻），无需音乐文件即可播放
 
 ### 🚀 快速开始
 
@@ -86,7 +86,7 @@ python app.py
 | 高级 Advanced | 激进，善于诈唬 |
 | 德州之神 God | 能看到所有玩家手牌 |
 
-**背景音乐**：把 `lobby-music.mp3`、`table-music.mp3`、`action-music.mp3` 放入 `static/audio/`（见该目录下的 README）。文件缺失时静默运行。快捷键：`M` 播放 / 暂停，`Ctrl+H` 显示 / 隐藏音乐面板。
+**背景音乐**：开箱即用——没有音乐文件时会用浏览器实时合成的内置音乐（大厅爵士、牌桌行走贝斯、轮到你行动时切换为紧张节奏）。想换成自己的曲子，把 `lobby-music.mp3`、`table-music.mp3`、`action-music.mp3` 放入 `static/audio/` 即可（见该目录下的 README）。浏览器拦截自动播放时，点击页面任意位置即开始播放。快捷键：`M` 播放 / 暂停，`Ctrl+H` 显示 / 隐藏音乐面板。
 
 ### 📁 项目结构
 
@@ -146,7 +146,7 @@ gunicorn --worker-class eventlet -w 1 --bind 0.0.0.0:8888 app:app
 **Data & music**
 - SQLite persistence for players, rooms and table state, restored after a server restart
 - Showdown history and personal stats (win rate, winnings, hand history)
-- Background music that follows the scene (lobby / table / tense moments)
+- Background music that follows the scene (lobby / table / tense moments), no audio files required
 
 ### 🚀 Quick Start
 
@@ -192,7 +192,7 @@ Open <http://localhost:8888> and enter a nickname. Other devices on your LAN can
 | Advanced | Aggressive, bluffs often |
 | God | Can see every player's hole cards |
 
-**Music**: put `lobby-music.mp3`, `table-music.mp3` and `action-music.mp3` in `static/audio/` (see the README there). The game runs silently if they're missing. Shortcuts: `M` play / pause, `Ctrl+H` show / hide the music panel.
+**Music**: works out of the box — without audio files the game plays built-in music synthesized in the browser (lounge jazz in the lobby, walking bass at the table, a tense groove on your turn). To use your own tracks, put `lobby-music.mp3`, `table-music.mp3` and `action-music.mp3` in `static/audio/` (see the README there). If the browser blocks autoplay, music starts on your first click. Shortcuts: `M` play / pause, `Ctrl+H` show / hide the music panel.
 
 ### 📁 Project Structure
 
