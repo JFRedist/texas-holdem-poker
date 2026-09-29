@@ -3,10 +3,22 @@
 Texas Hold'em Poker Game Main Application
 """
 
-# ⚠️ 必须在导入其他库之前完成 eventlet monkey patch，
+import os
+
+# 运行模式配置（可通过环境变量覆盖，便于 Android 内置服务器等场景）
+#   POKER_ASYNC_MODE: eventlet（默认，PC/局域网）或 threading（Android 单机，无 C 扩展依赖）
+#   POKER_HOST / POKER_PORT: 监听地址与端口（默认 0.0.0.0:8888）
+#   POKER_DEBUG: 是否开启 debug 模式（默认 true；Android 内置服务器必须为 false）
+POKER_ASYNC_MODE = os.environ.get('POKER_ASYNC_MODE', 'eventlet')
+POKER_HOST = os.environ.get('POKER_HOST', '0.0.0.0')
+POKER_PORT = int(os.environ.get('POKER_PORT', '8888'))
+POKER_DEBUG = os.environ.get('POKER_DEBUG', 'true').lower() in ('1', 'true', 'yes')
+
+# ⚠️ eventlet 模式必须在导入其他库之前完成 monkey patch，
 # 否则 time.sleep 等调用会阻塞整个服务器（所有玩家连接卡死）
-import eventlet
-eventlet.monkey_patch()
+if POKER_ASYNC_MODE == 'eventlet':
+    import eventlet
+    eventlet.monkey_patch()
 
 import uuid
 import time
@@ -38,7 +50,7 @@ from player_persistence import update_player_chips, get_player
 # 创建Flask应用
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'poker_game_secret_key_2025'
-socketio = SocketIO(app, cors_allowed_origins="*", async_mode='eventlet', 
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode=POKER_ASYNC_MODE, 
                   logger=False, engineio_logger=False, ping_timeout=30, ping_interval=25)
 
 # Socket.IO错误处理
@@ -2384,4 +2396,4 @@ if __name__ == '__main__':
         print("🎮 游戏已准备就绪！")
         print("⚙️ 自动维护已启动 (每3分钟快速维护，每小时深度维护)")
     
-    socketio.run(app, host='0.0.0.0', port=8888, debug=True) 
+    socketio.run(app, host=POKER_HOST, port=POKER_PORT, debug=POKER_DEBUG) 

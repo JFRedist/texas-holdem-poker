@@ -6,6 +6,16 @@ This file records the changes made in this fork relative to the upstream reposit
 
 ---
 
+## 2026-09-29
+
+### 新增 / Added
+- **运行模式可配置**：通过 `POKER_HOST` / `POKER_PORT` / `POKER_DEBUG` / `POKER_ASYNC_MODE` 环境变量设置监听地址、端口、debug 与异步模式；`threading` 模式不依赖 eventlet。
+  **Configurable runtime**: host, port, debug and async mode via environment variables; `threading` mode works without eventlet.
+
+### 文档 / Docs
+- 重写 README（中英文对齐、补充项目结构与配置说明、修正与代码不符的内容），新增本 CHANGELOG。
+  Rewrote the README and added this changelog.
+
 ## 2026-09-01
 
 ### 新增 / Added

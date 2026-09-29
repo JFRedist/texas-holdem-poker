@@ -62,6 +62,15 @@ python app.py
 
 浏览器打开 <http://localhost:8888>，输入昵称即可进入大厅。局域网内其他设备访问 `http://<本机IP>:8888` 即可同桌。
 
+**环境变量（可选）**
+
+| 变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `POKER_HOST` | `0.0.0.0` | 监听地址 |
+| `POKER_PORT` | `8888` | 监听端口 |
+| `POKER_DEBUG` | `true` | 是否开启 Flask debug 模式 |
+| `POKER_ASYNC_MODE` | `eventlet` | Socket.IO 异步模式；无法安装 eventlet 的环境（如 Android 内置服务器）可设为 `threading` |
+
 ### 🎮 游戏指南
 
 **操作**：过牌（Check）、跟注（Call）、下注 / 加注（Bet / Raise，可拖动滑块）、弃牌（Fold）、全下（All-in）。
@@ -158,6 +167,15 @@ python app.py
 ```
 
 Open <http://localhost:8888> and enter a nickname. Other devices on your LAN can join at `http://<your-ip>:8888`.
+
+**Environment variables (optional)**
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `POKER_HOST` | `0.0.0.0` | Bind address |
+| `POKER_PORT` | `8888` | Port |
+| `POKER_DEBUG` | `true` | Enable Flask debug mode |
+| `POKER_ASYNC_MODE` | `eventlet` | Socket.IO async mode; use `threading` where eventlet can't be installed (e.g. an embedded Android server) |
 
 ### 🎮 Game Guide
 
