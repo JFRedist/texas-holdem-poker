@@ -21,6 +21,8 @@ This file records the changes made in this fork relative to the upstream reposit
   **Hand analysis in bot practice only**: disabled with 2+ humans at the table, enforced server-side for the win-probability and card-tracking APIs as well.
 
 ### 修复 / Fixed
+- **启动时打印的地址错误**：此前写死为上游作者的 `http://192.168.178.39:5000`；现在打印本机访问地址和自动检测到的局域网地址（排除 VPN 网段），并说明日志中的 `0.0.0.0` 不是访问地址。
+  **Wrong startup address**: the hard-coded upstream address is replaced by the real localhost and detected LAN URLs.
 - **音乐无法切换曲目**：`window.musicPlayer` 在播放器实例创建前就被赋值为 undefined，导致牌桌页所有切歌逻辑（轮到你行动、手牌结束、离开牌桌）从未生效。
   **Music never switched tracks**: `window.musicPlayer` was exported before the player existed.
 

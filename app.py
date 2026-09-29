@@ -316,6 +316,33 @@ def handle_restart_needed(table_id: str, state_type, data: Dict):
         mark_restart_completed(table_id, hand_number, success=False)
 
 
+def get_lan_ips() -> List[str]:
+    """本机的局域网 IPv4 地址（私有网段），默认路由所在网卡排在最前。
+    不包含回环、链路本地以及 100.64.0.0/10（NordVPN、Tailscale 等 VPN 常用）地址"""
+    import socket
+    import ipaddress
+
+    candidates = []
+    try:
+        # 连接一个外部地址（UDP 不会真正发包）以得到默认路由网卡的 IP
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.connect(('8.8.8.8', 80))
+            candidates.append(s.getsockname()[0])
+    except OSError:
+        pass
+    try:
+        candidates += [info[4][0] for info in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET)]
+    except OSError:
+        pass
+
+    ips = []
+    for ip in candidates:
+        addr = ipaddress.ip_address(ip)
+        if addr.is_private and not addr.is_loopback and not addr.is_link_local and ip not in ips:
+            ips.append(ip)
+    return ips
+
+
 def is_bot_practice(table) -> bool:
     """纯人机练习：牌桌上最多只有 1 名真人玩家。牌型分析/胜率等辅助功能仅在此时可用"""
     return sum(1 for p in table.players if not p.is_bot) <= 1
@@ -2402,7 +2429,14 @@ if __name__ == '__main__':
         cleanup_thread = threading.Thread(target=long_term_cleanup, daemon=True)
         cleanup_thread.start()
         
-        print("🌐 服务器地址: http://192.168.178.39:5000")
+        print(f"🌐 本机访问: http://localhost:{POKER_PORT}")
+        if POKER_HOST in ('0.0.0.0', '::'):
+            lan_ips = get_lan_ips()
+            for ip in lan_ips:
+                print(f"📱 局域网访问: http://{ip}:{POKER_PORT}  （同一 Wi-Fi / 局域网下的手机、电脑）")
+            if not lan_ips:
+                print("📱 未检测到局域网 IP，其他设备可能无法连接")
+            print(f"   （后面日志里的 0.0.0.0:{POKER_PORT} 表示监听所有网卡，不能直接在浏览器打开）")
         print("🎮 游戏已准备就绪！")
         print("⚙️ 自动维护已启动 (每3分钟快速维护，每小时深度维护)")
     

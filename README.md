@@ -60,7 +60,9 @@ pip install -r requirements.txt
 python app.py
 ```
 
-浏览器打开 <http://localhost:8888>，输入昵称即可进入大厅。局域网内其他设备访问 `http://<本机IP>:8888` 即可同桌。
+浏览器打开 <http://localhost:8888>，输入昵称即可进入大厅。启动时会打印「📱 局域网访问」地址，同一 Wi-Fi 下的手机、电脑打开它即可同桌。
+
+> 其他设备连不上时依次检查：① 设备是否连在同一个 Wi-Fi（访客网络、校园网通常会隔离设备）；② Windows 防火墙是否允许 Python 接收连接（首次启动弹窗时要勾选「公用网络」，或把网络设为「专用」）；③ 如果开着 NordVPN 等 VPN，需要在 VPN 设置中允许局域网访问（NordVPN：关闭「局域网隐身 / Invisibility on LAN」）。
 
 **环境变量（可选）**
 
@@ -166,7 +168,9 @@ pip install -r requirements.txt
 python app.py
 ```
 
-Open <http://localhost:8888> and enter a nickname. Other devices on your LAN can join at `http://<your-ip>:8888`.
+Open <http://localhost:8888> and enter a nickname. The server prints a "📱 局域网访问" (LAN) address on startup — open it on any phone or computer on the same Wi-Fi.
+
+> If other devices can't connect, check: (1) they are on the same Wi-Fi (guest / campus networks often isolate clients); (2) Windows Firewall allows Python inbound (tick "Public networks" on the first-run prompt, or set the network to Private); (3) if a VPN such as NordVPN is on, allow LAN access in its settings (NordVPN: turn off "Invisibility on LAN").
 
 **Environment variables (optional)**
 
