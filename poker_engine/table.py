@@ -177,6 +177,11 @@ class Table:
             player.is_small_blind = False
             player.is_big_blind = False
 
+        # 机器人记录本手牌的对手，用于统计入池率等
+        for player in active_players:
+            if isinstance(player, Bot):
+                player.observe_new_hand([p.id for p in active_players if p is not player])
+
         # 设置当前庄家（必须在 reset 之后，否则标记会被重置）
         dealer.is_dealer = True
         print(f"🎯 庄家: {dealer.nickname} (位置 {self.dealer_position})")
@@ -319,6 +324,10 @@ class Table:
 
         def done(act, added, desc):
             player.has_acted = True
+            # 通知其他机器人，用于对手建模（盲注不经过这里，不会计入主动入池）
+            for other in self.players:
+                if isinstance(other, Bot) and other is not player:
+                    other.update_opponent_pattern(player.id, act, added, {'stage': self.game_stage.value})
             return {'success': True, 'action': act, 'amount': added, 'description': desc}
 
         def reject(msg):

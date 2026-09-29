@@ -37,16 +37,8 @@ class Bot(Player):
         """
         super().__init__(player_id, nickname, chips, is_bot=True)
         self.bot_level = level
-        self.hand_history = []  # 手牌历史
-        self.opponent_patterns = {}  # 对手行为模式
-        self.session_stats = {  # 会话统计
-            'hands_played': 0,
-            'vpip': 0,  # 主动入池率
-            'pfr': 0,   # 翻前加注率
-            'aggression_factor': 1.0,
-            'showdown_wins': 0,
-            'total_showdowns': 0
-        }
+        self.opponent_patterns = {}  # 对手行为统计（由牌桌在每次行动后更新，高级机器人据此建模）
+        self.session_stats = {'hands_played': 0}
     
     def decide_action(self, game_state: Dict) -> Tuple[PlayerAction, int]:
         """
@@ -58,9 +50,6 @@ class Bot(Player):
         Returns:
             Tuple[PlayerAction, int]: (动作类型, 下注金额)
         """
-        # 更新统计数据
-        self.session_stats['hands_played'] += 1
-        
         # 检查基本状态
         if self.chips <= 0:
             return PlayerAction.FOLD, 0
@@ -262,99 +251,98 @@ class Bot(Player):
 
     def _advanced_strategy(self, game_state: Dict) -> Tuple[PlayerAction, int]:
         """
-        高级机器人策略：GTO近似策略，对手建模，动态调整
+        高级机器人策略：真实胜率 + 对手建模 + 位置 + 筹码深度。
+        - 面对下注时，按下注者的风格修正胜率（紧的玩家下注时范围更强，激进的玩家诈唬更多）
+        - 翻牌前按位置决定开池范围，强牌再加注
+        - 翻牌后价值下注按胜率定尺度；听牌半诈唬；河牌诈唬频率按下注尺度与对手弃牌倾向计算
+        - 筹码越深，边缘牌跟注要求的胜率余量越大
         """
         if self.chips <= 0:
             return PlayerAction.FOLD, 0
-            
-        community_cards = game_state.get('community_cards', [])
-        current_bet = game_state.get('current_bet', 0)
+
+        board = game_state.get('community_cards', [])
+        pot = game_state.get('pot_size', 0)
         big_blind = game_state.get('big_blind', 20)
-        pot_size = game_state.get('pot_size', 0)
         num_opponents = game_state.get('num_opponents', max(1, game_state.get('active_players', 2) - 1))
         position = game_state.get('position', 'middle')
-        betting_round = len(community_cards)
-        stack_to_pot_ratio = self.chips / max(pot_size, big_blind)
-        
-        # 高级胜率计算
-        if len(community_cards) >= 3:
-            win_probability = self._advanced_monte_carlo(community_cards, num_opponents, 1500)
-            hand_equity = self._calculate_hand_equity(community_cards)
+        call_amount = game_state.get('to_call', max(0, game_state.get('current_bet', 0) - self.current_bet))
+        preflop = len(board) < 3
+
+        opponents = [p for p in game_state.get('all_players', []) if p.id != self.id
+                     and p.status in (PlayerStatus.PLAYING, PlayerStatus.ALL_IN)]
+        profiles = [self._opponent_profile(p.id) for p in opponents] or [self._opponent_profile(None)]
+        avg_tightness = sum(pr['tightness'] for pr in profiles) / len(profiles)
+
+        if preflop:
+            strength = preflop_equity(self.hole_cards, 1)
+            equity = preflop_equity(self.hole_cards, num_opponents)
         else:
-            win_probability = self._advanced_preflop_strategy(num_opponents, position)
-            hand_equity = win_probability
-        
-        # 对手建模调整
-        opponent_adjustment = self._analyze_opponents(game_state)
-        adjusted_win_prob = max(0.05, min(0.95, win_probability + opponent_adjustment))
-        
-        # 位置和筹码深度调整
-        position_factor = {'early': 0.85, 'middle': 1.0, 'late': 1.15}.get(position, 1.0)
-        stack_factor = min(1.2, max(0.8, math.log(stack_to_pot_ratio + 1) / 2))
-        
-        call_amount = current_bet - self.current_bet
-        
-        # 诈唬频率计算 (基于GTO理论)
-        bluff_frequency = self._calculate_optimal_bluff_frequency(pot_size, call_amount, position)
-        should_bluff = (random.random() < bluff_frequency and 
-                       adjusted_win_prob < 0.35 and 
-                       betting_round >= 3)
-        
-        # 无需跟注的情况
+            equity = equity_vs_random(self.hole_cards, board, num_opponents, 1500)['equity']
+            strength = equity
+
+        # 面对下注：下注者的范围比随机手牌强，按其风格折算胜率
+        if call_amount > 0 and opponents:
+            aggressor = max(opponents, key=lambda p: p.current_bet)
+            profile = self._opponent_profile(aggressor.id)
+            factor = 0.85 - 0.3 * (profile['tightness'] - 0.5) + 0.2 * (profile['aggression'] - 0.5)
+            equity *= max(0.6, min(1.0, factor))
+
+        spr = self.chips / max(pot, big_blind)
+        margin = 0.03 + 0.05 * min(spr, 10) / 10  # 筹码越深，边缘跟注越谨慎
+
+        # ---------- 无需跟注 ----------
         if call_amount == 0:
-            if should_bluff:
-                return self._bet(game_state, self._calculate_optimal_bet_size(pot_size, 'bluff', position))
-            elif adjusted_win_prob * position_factor > 0.6:
-                return self._bet(game_state, self._calculate_optimal_bet_size(pot_size, 'value', position))
-            elif adjusted_win_prob > 0.3 and random.random() < 0.2:
-                # 小频率的阻挡下注
-                return self._bet(game_state, int(0.3 * pot_size))
-            else:
+            if preflop:
+                # 翻牌前（大盲选择权或平跟的底池）：按位置的开池标准加注
+                open_threshold = {'early': 0.64, 'middle': 0.60, 'late': 0.56}.get(position, 0.60)
+                if strength >= open_threshold:
+                    return self._bet(game_state, max(pot, 2 * big_blind))
                 return PlayerAction.CHECK, 0
-        
-        # 全下场景
+            value_threshold = 0.55 if avg_tightness < 0.4 else 0.6  # 对跟注站可以更薄地价值下注
+            if equity >= 0.8:
+                return self._bet(game_state, pot * 0.9)
+            if equity >= value_threshold:
+                return self._bet(game_state, pot * (0.5 + (equity - value_threshold)))
+            if len(board) < 5 and 0.3 <= equity < value_threshold and num_opponents <= 2:
+                # 听牌/中等牌半诈唬：后位更积极
+                if random.random() < (0.3 if position == 'late' else 0.15):
+                    return self._bet(game_state, pot * 0.5)
+            if len(board) == 5 and equity < 0.2 and num_opponents <= 2:
+                # 河牌诈唬：诈唬占下注范围的比例 b/(p+2b)，再乘以对手弃牌倾向
+                bet = pot * 0.66
+                if random.random() < avg_tightness * bet / (pot + 2 * bet):
+                    return self._bet(game_state, bet)
+            return PlayerAction.CHECK, 0
+
+        # ---------- 面对下注 ----------
+        pot_odds = call_amount / (pot + call_amount)
         if call_amount >= self.chips:
-            # 考虑隐含赔率
-            implied_odds = self._calculate_implied_odds(game_state)
-            effective_win_prob = adjusted_win_prob + implied_odds
-            pot_odds = self.chips / (pot_size + self.chips)
-            
-            if effective_win_prob > pot_odds * 1.1 or should_bluff:
-                return PlayerAction.ALL_IN, self.chips
-            else:
-                return PlayerAction.FOLD, 0
-        
-        # 正常下注场景
-        pot_odds = call_amount / (pot_size + call_amount) if (pot_size + call_amount) > 0 else 1
-        
-        if should_bluff:
-            # 诈唬策略
-            if random.random() < 0.6:  # 60% 加注诈唬
-                return self._raise(game_state, self._calculate_optimal_bet_size(pot_size + call_amount, 'bluff', position))
-            return PlayerAction.CALL, call_amount
-        
-        # 价值策略
-        if adjusted_win_prob * position_factor * stack_factor > pot_odds + 0.15:
-            if adjusted_win_prob > 0.8:
-                # 坚果牌，大幅加注
-                return self._raise(game_state, self._calculate_optimal_bet_size(pot_size + call_amount, 'nuts', position))
-            elif adjusted_win_prob > 0.65:
-                # 强牌，适度加注
-                if random.random() < 0.7:
-                    return self._raise(game_state, self._calculate_optimal_bet_size(pot_size + call_amount, 'value', position))
+            # 跟注即全下：只看胜率是否够，不做「诈唬跟注」
+            return (PlayerAction.ALL_IN, self.chips) if equity > pot_odds else (PlayerAction.FOLD, 0)
+
+        if preflop:
+            if strength >= 0.72:
+                # QQ+、AK 等强牌再加注（约 3 倍）
+                return self._raise(game_state, pot + call_amount)
+            open_threshold = {'early': 0.62, 'middle': 0.58, 'late': 0.55}.get(position, 0.58)
+            if call_amount <= big_blind and strength >= open_threshold:
+                # 无人加注的底池：按位置开池加注
+                return self._raise(game_state, pot + call_amount)
+            if equity > pot_odds + margin:
                 return PlayerAction.CALL, call_amount
-            else:
-                return PlayerAction.CALL, call_amount
-        elif adjusted_win_prob * position_factor > pot_odds:
-            # 边际价值，倾向跟注
-            if random.random() < 0.6:
-                return PlayerAction.CALL, call_amount
-            else:
-                return PlayerAction.FOLD, 0
-        else:
-            # 胜率不足，弃牌
             return PlayerAction.FOLD, 0
-    
+
+        if equity >= 0.75:
+            return self._raise(game_state, (pot + call_amount) * 0.75)
+        if equity > pot_odds + margin:
+            return PlayerAction.CALL, call_amount
+        if (len(board) >= 4 and num_opponents == 1 and position == 'late' and equity < 0.15
+                and self._opponent_profile(opponents[0].id if opponents else None)['aggression'] > 0.6
+                and random.random() < 0.05):
+            # 对激进对手偶尔用空气牌加注反诈唬
+            return self._raise(game_state, (pot + call_amount) * 0.75)
+        return PlayerAction.FOLD, 0
+
     def _evaluate_preflop_hand(self) -> float:
         """
         翻牌前牌力（0~1）：由对 1 名随机对手的真实胜率线性换算，
@@ -363,51 +351,21 @@ class Bot(Player):
         if len(self.hole_cards) != 2:
             return 0.0
         return max(0.0, min(1.0, (preflop_equity(self.hole_cards, 1) - 0.30) / 0.55))
-    
+
     def _preflop_win_rate(self, num_opponents: int) -> float:
         """翻牌前对 num_opponents 名随机对手的真实胜率"""
         if len(self.hole_cards) != 2:
             return 0.0
         return preflop_equity(self.hole_cards, num_opponents)
-    
+
     def _improved_monte_carlo(self, community_cards: List[Card], num_opponents: int, simulations: int = 1000) -> float:
         """蒙特卡洛胜率：完整比较牌型、点数与踢脚，平局按人数分摊"""
         if len(self.hole_cards) != 2:
             return 0.0
         return equity_vs_random(self.hole_cards, community_cards, num_opponents, simulations)['equity']
 
-    def _advanced_monte_carlo(self, community_cards: List[Card], num_opponents: int, simulations: int = 1500) -> float:
-        """高级蒙特卡洛模拟，考虑对手范围"""
-        base_win_rate = self._improved_monte_carlo(community_cards, num_opponents, simulations)
-        
-        # 根据对手紧松度调整
-        avg_tightness = sum(pattern.get('tightness', 0.5) for pattern in self.opponent_patterns.values())
-        avg_tightness = avg_tightness / len(self.opponent_patterns) if self.opponent_patterns else 0.5
-        
-        # 紧的对手通常有更强的范围
-        tightness_adjustment = (avg_tightness - 0.5) * 0.1
-        
-        return max(0.05, min(0.95, base_win_rate - tightness_adjustment))
-    
-    def _advanced_preflop_strategy(self, num_opponents: int, position: str) -> float:
-        """高级翻前策略"""
-        base_strength = self._preflop_win_rate(num_opponents)
-        
-        # 位置调整（胜率是真实概率，修正幅度要小）
-        position_bonus = {'early': -0.03, 'middle': 0, 'late': 0.03}.get(position, 0)
-        opponent_penalty = 0.0
-        
-        # 根据会话统计调整
-        if self.session_stats['hands_played'] > 10:
-            # 如果我们一直在输，变得更保守
-            if self.session_stats.get('showdown_wins', 0) < self.session_stats.get('total_showdowns', 1) * 0.3:
-                base_strength *= 0.9
-        
-        adjusted_strength = base_strength + position_bonus - opponent_penalty
-        return max(0.05, min(0.95, adjusted_strength))
-    
     def _calculate_bet_size(self, pot_size: int, win_prob: float, bet_type: str) -> int:
-        """计算最优下注大小"""
+        """计算下注大小（中级机器人使用）"""
         if bet_type == 'value':
             # 价值下注：根据胜率调整大小
             if win_prob > 0.8:
@@ -421,163 +379,59 @@ class Bot(Player):
             return int(pot_size * 0.7)
         else:
             return int(pot_size * 0.5)
-    
-    def _calculate_optimal_bet_size(self, pot_size: int, bet_type: str, position: str) -> int:
-        """计算最优下注大小（高级版本）"""
-        base_multiplier = {
-            'value': 0.6,
-            'bluff': 0.7,
-            'nuts': 0.85,
-            'blocking': 0.3
-        }.get(bet_type, 0.5)
-        
-        # 位置调整
-        position_multiplier = {'early': 0.9, 'middle': 1.0, 'late': 1.1}.get(position, 1.0)
-        
-        return max(10, int(pot_size * base_multiplier * position_multiplier))
-    
-    def _calculate_optimal_bluff_frequency(self, pot_size: int, bet_amount: int, position: str) -> float:
-        """基于GTO理论计算最优诈唬频率"""
-        if pot_size == 0:
-            return 0.05
-        
-        # 基本GTO公式：诈唬频率 = 下注额 / (底池 + 下注额)
-        base_frequency = bet_amount / (pot_size + bet_amount) if (pot_size + bet_amount) > 0 else 0.1
-        
-        # 位置调整
-        position_bonus = {'early': -0.02, 'middle': 0, 'late': 0.03}.get(position, 0)
-        
-        return max(0.02, min(0.25, base_frequency + position_bonus))
-    
-    def _calculate_hand_equity(self, community_cards: List[Card]) -> float:
-        """计算手牌权益"""
-        if len(community_cards) < 3:
-            return self._evaluate_preflop_hand()
-        
-        hand_rank, _ = HandEvaluator.evaluate_hand(self.hole_cards, community_cards)
-        base_equity = hand_rank.rank_value / 10.0
-        
-        # 考虑听牌可能性
-        if len(community_cards) < 5:
-            draw_potential = self._calculate_draw_potential(community_cards)
-            base_equity += draw_potential * 0.1
-        
-        return min(0.95, base_equity)
-    
-    def _calculate_draw_potential(self, community_cards: List[Card]) -> float:
-        """计算听牌潜力"""
-        potential = 0.0
-        
-        all_cards = self.hole_cards + community_cards
-        
-        # 检查同花听牌
-        suit_counts = {}
-        for card in all_cards:
-            suit_counts[card.suit] = suit_counts.get(card.suit, 0) + 1
-        
-        max_suit_count = max(suit_counts.values()) if suit_counts else 0
-        if max_suit_count == 4:  # 同花听牌
-            potential += 0.4
-        elif max_suit_count == 3:  # 可能的同花听牌
-            potential += 0.1
-        
-        # 检查顺子听牌（简化版本）
-        ranks = sorted([card.rank.numeric_value for card in all_cards])
-        consecutive_count = 1
-        max_consecutive = 1
-        
-        for i in range(1, len(ranks)):
-            if ranks[i] == ranks[i-1] + 1:
-                consecutive_count += 1
-                max_consecutive = max(max_consecutive, consecutive_count)
-            else:
-                consecutive_count = 1
-        
-        if max_consecutive == 4:  # 顺子听牌
-            potential += 0.3
-        elif max_consecutive == 3:  # 可能的顺子听牌
-            potential += 0.1
-        
-        return min(0.5, potential)
-    
-    def _analyze_opponents(self, game_state: Dict) -> float:
-        """分析对手并调整策略"""
-        if not self.opponent_patterns:
-            return 0.0
-        
-        adjustment = 0.0
-        
-        # 分析平均对手紧松度
-        avg_tightness = sum(p.get('tightness', 0.5) for p in self.opponent_patterns.values())
-        avg_tightness = avg_tightness / len(self.opponent_patterns)
-        
-        # 对紧的对手更保守
-        if avg_tightness > 0.7:
-            adjustment -= 0.08
-        elif avg_tightness < 0.3:
-            adjustment += 0.05
-        
-        # 分析平均攻击性
-        avg_aggression = sum(p.get('aggression', 0.5) for p in self.opponent_patterns.values())
-        avg_aggression = avg_aggression / len(self.opponent_patterns)
-        
-        # 对激进的对手更小心
-        if avg_aggression > 0.7:
-            adjustment -= 0.05
-        
-        return adjustment
-    
-    def _calculate_implied_odds(self, game_state: Dict) -> float:
-        """计算隐含赔率"""
-        pot_size = game_state.get('pot_size', 0)
-        
-        # 估算对手剩余筹码
-        opponent_stack_estimate = 0
-        for pattern in self.opponent_patterns.values():
-            # 这里可以根据对手历史行为估算其筹码量
-            opponent_stack_estimate += 500  # 简化估算
-        
-        if pot_size == 0:
-            return 0.0
-        
-        # 隐含赔率 = 潜在收益 / 当前底池
-        implied_ratio = min(0.3, opponent_stack_estimate / (pot_size * 10))
-        
-        return implied_ratio
-    
+
+    # ---------- 对手建模 ----------
+
+    def observe_new_hand(self, opponent_ids: List[str]):
+        """新一手牌开始：记录本手牌参与的对手，用于统计入池率等"""
+        self.session_stats['hands_played'] += 1
+        for pid in opponent_ids:
+            pattern = self._pattern(pid)
+            pattern['hands'] += 1
+            pattern['vpip_this_hand'] = False
+            pattern['pfr_this_hand'] = False
+
     def update_opponent_pattern(self, player_id: str, action: PlayerAction, amount: int, context: Dict):
         """
-        更新对手行为模式记录
-        
-        Args:
-            player_id: 对手ID
-            action: 对手动作
-            amount: 下注金额
-            context: 游戏上下文
+        记录对手的一次行动（由牌桌在每次行动后调用）。
+        统计：主动入池（翻牌前跟注/下注/加注）、翻牌前加注、激进行动（下注/加注/全下）与被动行动（跟注）
         """
+        pattern = self._pattern(player_id)
+        preflop = context.get('stage') == 'pre_flop'
+        if action in (PlayerAction.CALL, PlayerAction.BET, PlayerAction.RAISE, PlayerAction.ALL_IN):
+            if preflop and not pattern['vpip_this_hand']:
+                pattern['vpip'] += 1
+                pattern['vpip_this_hand'] = True
+        if action in (PlayerAction.BET, PlayerAction.RAISE, PlayerAction.ALL_IN):
+            pattern['aggressive'] += 1
+            if preflop and not pattern['pfr_this_hand']:
+                pattern['pfr'] += 1
+                pattern['pfr_this_hand'] = True
+        elif action == PlayerAction.CALL:
+            pattern['passive'] += 1
+        elif action == PlayerAction.FOLD:
+            pattern['folds'] += 1
+
+    def _pattern(self, player_id: str) -> Dict:
         if player_id not in self.opponent_patterns:
             self.opponent_patterns[player_id] = {
-                'aggression': 0.5,  # 攻击性
-                'tightness': 0.5,   # 紧松度
-                'bluff_frequency': 0.1,  # 诈唬频率
-                'action_count': 0
+                'hands': 0, 'vpip': 0, 'pfr': 0, 'aggressive': 0, 'passive': 0, 'folds': 0,
+                'vpip_this_hand': False, 'pfr_this_hand': False
             }
-        
-        pattern = self.opponent_patterns[player_id]
-        pattern['action_count'] += 1
-        
-        # 更新攻击性
-        if action in [PlayerAction.BET, PlayerAction.RAISE]:
-            pattern['aggression'] = min(1.0, pattern['aggression'] + 0.05)
-        elif action == PlayerAction.FOLD:
-            pattern['aggression'] = max(0.0, pattern['aggression'] - 0.02)
-        
-        # 更新紧松度
-        if action == PlayerAction.FOLD:
-            pattern['tightness'] = min(1.0, pattern['tightness'] + 0.03)
-        elif action in [PlayerAction.CALL, PlayerAction.BET, PlayerAction.RAISE]:
-            pattern['tightness'] = max(0.0, pattern['tightness'] - 0.02)
-    
+        return self.opponent_patterns[player_id]
+
+    def _opponent_profile(self, player_id: Optional[str]) -> Dict[str, float]:
+        """
+        对手画像（带先验，样本少时接近平均玩家）：
+        tightness = 1 - 入池率（先验入池率 30%），aggression = 激进行动占比（先验 50%）
+        """
+        pattern = self.opponent_patterns.get(player_id) if player_id else None
+        if not pattern:
+            return {'tightness': 0.7, 'aggression': 0.5}
+        vpip_rate = (pattern['vpip'] + 1.5) / (pattern['hands'] + 5)
+        aggression = (pattern['aggressive'] + 1) / (pattern['aggressive'] + pattern['passive'] + 2)
+        return {'tightness': 1 - vpip_rate, 'aggression': aggression}
+
     def _god_strategy(self, game_state: Dict) -> Tuple[PlayerAction, int]:
         """
         德州扑克之神：能看到所有玩家的底牌。
