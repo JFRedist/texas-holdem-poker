@@ -22,8 +22,20 @@ This file records the changes made in this fork relative to the upstream reposit
 
   **Real Texas Hold'em settlement**: busted players sit out; side pots, split pots with odd-chip rule and uncalled-bet returns; the last active player must still respond to an all-in; minimum bet/raise rules; heads-up post-flop order. Bot processing is now serialized per table.
 
+### AI / Bots
+- **比牌与胜率**：新增快速 7 张牌评估器（`poker_engine/equity.py`），完整比较点数与踢脚（此前只比牌型大类，一对 2 与一对 A 算平局）；高级机器人一次决策由约 2 秒降到约 0.05 秒。胜率计算接口改为真实模拟。
+- **加注金额**：机器人统一按「加注到」的总额下注，不低于最小加注；机器人拿到真实位置、需跟注额、含全下者的对手数等信息（此前位置恒为 middle）。
+- **德州扑克之神**：用看到的全部底牌（含已全下的对手，弃牌者的牌作死牌）精确计算胜率后决策，不再在同牌型时误判领先、不再扔掉胜率足够的听牌；日志不再打印他人底牌。
+- **翻牌前评分**：改用真实胜率（此前 AKs 高于 AA、QJs 与 KK 同分）；中级改为「胜率比底池赔率决定跟注，牌力决定加注」。
+- **高级机器人**：接通对手建模（入池率、翻牌前加注率、激进程度），面对下注按对手风格修正胜率；按位置开池；诈唬频率按下注尺度与对手弃牌倾向计算，不再把跟注全下当诈唬；筹码越深边缘跟注越谨慎。
+
+  **Bots**: fast and correct hand evaluation, raise-to amounts and real position info, a Poker God that uses exact equity against the hands it sees, equity-based pre-flop ranking, and an advanced bot with working opponent modelling and sensible bluffing.
+
+### 其他 / Chore
+- 移除启动时和每小时对 `fix_database_issues.py` 的调用：该脚本已在上游删除，调用每次都失败并输出警告。
+
 ### 测试 / Tests
-- 新增 `tests/test_table_rules.py`（规则场景 + 两千多手随机牌局的筹码守恒测试）与 `tests/test_bot_games.py`（纯机器人对局）。
+- 新增 `tests/test_table_rules.py`（规则场景 + 两千多手随机牌局的筹码守恒测试）、`tests/test_bot_games.py`（纯机器人对局）、`tests/test_equity.py`（评估器与胜率）、`tests/test_bot_strategy.py`（固定牌面决策），以及强度基准 `tests/bench_bot_strength.py`。
 
 ## 2026-09-29
 

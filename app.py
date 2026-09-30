@@ -2403,19 +2403,6 @@ if __name__ == '__main__':
         print("🃏 德州扑克游戏服务器启动中...")
         print("📊 数据库初始化完成")
         
-        # 启动时进行数据库修复和清理
-        print("🔧 执行启动修复...")
-        try:
-            import subprocess
-            result = subprocess.run(['python', 'fix_database_issues.py'], 
-                                  capture_output=True, text=True, timeout=30)
-            if result.returncode == 0:
-                print("✅ 数据库修复完成")
-            else:
-                print(f"⚠️ 数据库修复警告: {result.stderr}")
-        except Exception as e:
-            print(f"⚠️ 数据库修复失败: {e}")
-        
         # 启动时清理空房间
         print("🧹 初始清理...")
         cleanup_empty_tables()
@@ -2431,29 +2418,9 @@ if __name__ == '__main__':
                 except Exception as e:
                     print(f"❌ 定期维护出错: {e}")
         
-        # 启动长期清理任务  
-        def long_term_cleanup():
-            import time
-            while True:
-                time.sleep(3600)  # 每小时执行一次深度清理
-                try:
-                    print("🔧 执行每小时深度维护...")
-                    import subprocess
-                    result = subprocess.run(['python', 'fix_database_issues.py'], 
-                                          capture_output=True, text=True, timeout=60)
-                    if result.returncode == 0:
-                        print("✅ 深度维护完成")
-                    else:
-                        print(f"⚠️ 深度维护警告")
-                except Exception as e:
-                    print(f"❌ 深度维护失败: {e}")
-        
         # 启动维护线程
         maintenance_thread = threading.Thread(target=periodic_maintenance, daemon=True)
         maintenance_thread.start()
-        
-        cleanup_thread = threading.Thread(target=long_term_cleanup, daemon=True)
-        cleanup_thread.start()
         
         print(f"🌐 本机访问: http://localhost:{POKER_PORT}")
         if POKER_HOST in ('0.0.0.0', '::'):
@@ -2464,6 +2431,6 @@ if __name__ == '__main__':
                 print("📱 未检测到局域网 IP，其他设备可能无法连接")
             print(f"   （后面日志里的 0.0.0.0:{POKER_PORT} 表示监听所有网卡，不能直接在浏览器打开）")
         print("🎮 游戏已准备就绪！")
-        print("⚙️ 自动维护已启动 (每3分钟快速维护，每小时深度维护)")
+        print("⚙️ 自动维护已启动 (每3分钟清理空房间)")
     
     socketio.run(app, host=POKER_HOST, port=POKER_PORT, debug=POKER_DEBUG) 
