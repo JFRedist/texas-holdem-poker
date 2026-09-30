@@ -83,10 +83,10 @@ python app.py
 
 | 等级 | 风格 |
 | --- | --- |
-| 初级 Beginner | 保守，适合新手练习 |
-| 中级 Intermediate | 攻守平衡 |
-| 高级 Advanced | 激进，善于诈唬 |
-| 德州之神 God | 能看到所有玩家手牌 |
+| 初级 Beginner | 被动，爱跟注，只有强牌才下注，适合新手练习 |
+| 中级 Intermediate | 按真实胜率与底池赔率决定跟注、下注和加注 |
+| 高级 Advanced | 在中级基础上统计每个对手的风格并据此调整，按位置开池，会半诈唬和河牌诈唬 |
+| 德州之神 God | 能看到所有玩家的底牌，按精确胜率决策（作弊 AI） |
 
 **背景音乐**：开箱即用——没有音乐文件时会用浏览器实时合成的内置音乐（大厅爵士、牌桌行走贝斯、轮到你行动时切换为紧张节奏）。想换成自己的曲子，把 `lobby-music.mp3`、`table-music.mp3`、`action-music.mp3` 放入 `static/audio/` 即可（见该目录下的 README）。浏览器拦截自动播放时，点击页面任意位置即开始播放。快捷键：`M` 播放 / 暂停，`Ctrl+H` 显示 / 隐藏音乐面板。
 
@@ -192,10 +192,10 @@ Open <http://localhost:8888> and enter a nickname. The server prints a "📱 局
 
 | Level | Style |
 | --- | --- |
-| Beginner | Conservative, good for practice |
-| Intermediate | Balanced |
-| Advanced | Aggressive, bluffs often |
-| God | Can see every player's hole cards |
+| Beginner | Passive calling station that bets only strong hands; good for practice |
+| Intermediate | Decides by real equity versus pot odds |
+| Advanced | Adds opponent profiling, positional opening ranges, semi-bluffs and river bluffs |
+| God | Sees every player's hole cards and plays by exact equity (cheating AI) |
 
 **Music**: works out of the box — without audio files the game plays built-in music synthesized in the browser (lounge jazz in the lobby, walking bass at the table, a tense groove on your turn). To use your own tracks, put `lobby-music.mp3`, `table-music.mp3` and `action-music.mp3` in `static/audio/` (see the README there). If the browser blocks autoplay, music starts on your first click. Shortcuts: `M` play / pause, `Ctrl+H` show / hide the music panel.
 
