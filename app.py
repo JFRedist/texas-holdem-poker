@@ -942,11 +942,8 @@ def handle_register_player(data):
                     del player_sessions[old_sid]
                 if old_sid in session_tables:
                     del session_tables[old_sid]
-                # 断开旧连接
-                try:
-                    socketio.disconnect(old_sid)
-                except Exception as e:
-                    print(f"断开旧连接失败: {e}")
+                # 不主动断开旧连接：旧页面的客户端会自动重连并重新注册，反过来把新会话挤掉；
+                # 旧会话已从记录中移除，页面关闭时连接会自然断开
             
             print(f"玩家 {nickname} 旧会话已清理")
         
