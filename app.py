@@ -2009,6 +2009,11 @@ def handle_vote_next_round(data):
             emit('error', {'message': '玩家不在房间中'})
             return
         
+        # 只有本手牌结束后才能投票开始下一轮，否则会清掉进行中的底池
+        if table.game_stage != GameStage.FINISHED:
+            emit('error', {'message': '本手牌尚未结束，不能开始下一轮'})
+            return
+        
         # 初始化投票记录
         if table_id not in next_round_votes:
             next_round_votes[table_id] = {}
@@ -2025,7 +2030,8 @@ def handle_vote_next_round(data):
         
         # 检查是否所有人类玩家都投票了
         all_voted = True
-        human_players = [p for p in table.players if not p.is_bot]
+        # 断线玩家无法投票，也不会被发牌，不计入所需票数（否则整桌一直等他）
+        human_players = [p for p in table.players if not p.is_bot and p.status != PlayerStatus.DISCONNECTED]
         print(f"🗳️ 投票检查: 人类玩家数={len(human_players)}, 当前投票数={len(next_round_votes[table_id])}")
         
         for p in human_players:  # 只检查人类玩家
@@ -2066,15 +2072,12 @@ def start_next_round(table_id):
         if table_id in next_round_votes:
             del next_round_votes[table_id]
         
-        # 重置所有玩家状态
-        for player in table.players:
-            player.status = 'playing'
-            player.current_bet = 0
-            player.total_bet = 0
-            player.has_acted = False
-            player.hole_cards = []
+        # 防御：手牌进行中不能重开，否则底池会被清零
+        if table.game_stage != GameStage.FINISHED:
+            print(f"⚠️ 房间 {table.title} 手牌尚未结束（{table.game_stage.value}），忽略开始下一轮")
+            return
         
-        # 开始新手牌
+        # 开始新手牌（玩家状态由 start_new_hand 重置：断线玩家保持 DISCONNECTED 不发牌，破产玩家转为观战）
         success = table.start_new_hand()
         print(f"🎮 table.start_new_hand() 返回: {success}")
         

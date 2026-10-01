@@ -6,6 +6,14 @@ This file records the changes made in this fork relative to the upstream reposit
 
 ---
 
+## 2026-10-01
+
+### 修复 / Fixed
+- **手牌进行中投票“下一轮”会清空底池**：只有本手牌结束后才接受下一轮投票，`start_next_round` 也会拒绝在手牌进行中重开。此前人机桌上唯一的真人随时投票就能让底池里的筹码消失。
+- **再加注后的行动顺序**：下一位行动者改为从上一位行动者的下一位开始找。此前 4 人桌 UTG 加注、庄家跟注、小盲再加注后会轮到 UTG，大盲被跳过；翻牌后“下注、加注、再加注”同样乱序。
+- **断线玩家仍被发牌**：`start_next_round` 不再把玩家状态写成字符串 `'playing'`，改由 `start_new_hand` 重置状态，断线玩家保持断线、不发牌。断线的真人也不再计入下一轮所需票数，避免整桌一直等他投票。
+- 新增 `tests/test_next_round.py`，`tests/test_table_rules.py` 增加再加注行动顺序用例。
+
 ## 2026-09-30
 
 ### 修复 / Fixed
