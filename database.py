@@ -2,6 +2,8 @@ import sqlite3
 import uuid
 import time
 import json
+import hashlib
+import secrets
 from typing import Optional, Dict, List, Any
 import threading
 from contextlib import contextmanager
@@ -89,10 +91,72 @@ class PokerDatabase:
                 )
             ''')
             
+            # 登录令牌表（只存令牌的哈希值）
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS auth_tokens (
+                    token_hash TEXT PRIMARY KEY,
+                    user_id TEXT NOT NULL,
+                    created_at REAL NOT NULL,
+                    FOREIGN KEY (user_id) REFERENCES users (id)
+                )
+            ''')
+
+            # 旧数据库迁移：users 表增加密码哈希和机器人标识
+            cursor.execute('PRAGMA table_info(users)')
+            user_columns = {row[1] for row in cursor.fetchall()}
+            if 'password_hash' not in user_columns:
+                cursor.execute('ALTER TABLE users ADD COLUMN password_hash TEXT')
+            if 'is_bot' not in user_columns:
+                cursor.execute('ALTER TABLE users ADD COLUMN is_bot INTEGER DEFAULT 0')
+                cursor.execute('''
+                    UPDATE users SET is_bot = 1
+                    WHERE id IN (SELECT player_id FROM table_players WHERE is_bot = 1)
+                ''')
+
             conn.commit()
             print("数据库初始化完成")
     
-    def create_user(self, nickname: str) -> str:
+    @staticmethod
+    def _hash_token(token: str) -> str:
+        return hashlib.sha256(token.encode('utf-8')).hexdigest()
+
+    def set_password_hash(self, user_id: str, password_hash: str):
+        """设置用户的密码哈希"""
+        with self.lock:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute('UPDATE users SET password_hash = ? WHERE id = ?',
+                               (password_hash, user_id))
+                conn.commit()
+
+    def create_auth_token(self, user_id: str) -> str:
+        """为用户签发新的登录令牌，返回令牌明文"""
+        token = secrets.token_urlsafe(32)
+        with self.lock:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    INSERT INTO auth_tokens (token_hash, user_id, created_at)
+                    VALUES (?, ?, ?)
+                ''', (self._hash_token(token), user_id, time.time()))
+                conn.commit()
+        return token
+
+    def get_user_by_token(self, token: str) -> Optional[Dict]:
+        """根据登录令牌获取用户信息，令牌无效返回 None"""
+        if not token or not isinstance(token, str):
+            return None
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT users.* FROM auth_tokens
+                JOIN users ON users.id = auth_tokens.user_id
+                WHERE auth_tokens.token_hash = ?
+            ''', (self._hash_token(token),))
+            row = cursor.fetchone()
+            return dict(row) if row else None
+
+    def create_user(self, nickname: str, password_hash: Optional[str] = None) -> str:
         """创建新用户，返回用户ID"""
         with self.lock:
             with self.get_connection() as conn:
@@ -120,9 +184,9 @@ class PokerDatabase:
                 current_time = time.time()
                 
                 cursor.execute('''
-                    INSERT INTO users (id, nickname, chips, created_at, last_active)
-                    VALUES (?, ?, ?, ?, ?)
-                ''', (user_id, nickname, 1000, current_time, current_time))
+                    INSERT INTO users (id, nickname, chips, created_at, last_active, password_hash)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                ''', (user_id, nickname, 1000, current_time, current_time, password_hash))
                 
                 conn.commit()
                 print(f"创建新用户: {nickname} (ID: {user_id})")
@@ -139,6 +203,17 @@ class PokerDatabase:
                 return dict(row)
             return None
     
+    def get_human_user_by_nickname(self, nickname: str) -> Optional[Dict]:
+        """根据昵称获取真人用户（排除机器人记录）"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT * FROM users WHERE nickname = ? AND COALESCE(is_bot, 0) = 0
+                ORDER BY created_at LIMIT 1
+            ''', (nickname,))
+            row = cursor.fetchone()
+            return dict(row) if row else None
+
     def get_user_by_nickname(self, nickname: str) -> Optional[Dict]:
         """根据昵称获取用户信息"""
         with self.get_connection() as conn:

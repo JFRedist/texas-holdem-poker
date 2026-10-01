@@ -32,6 +32,24 @@
                     <p class="text-xs text-gray-400 mt-1" data-i18n="支持中文、英文、数字和常用符号">支持中文、英文、数字和常用符号</p>
                 </div>
 
+                <div>
+                    <label for="password" class="block text-sm font-medium text-gray-300 mb-2" data-i18n="输入密码">
+                        输入密码
+                    </label>
+                    <input 
+                        type="password" 
+                        id="password" 
+                        name="password" 
+                        maxlength="64"
+                        autocomplete="current-password"
+                        class="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-white placeholder-gray-400"
+                        placeholder="请输入密码（至少6个字符）"
+                        data-i18n-placeholder="请输入密码（至少6个字符）"
+                        required
+                    >
+                    <p class="text-xs text-gray-400 mt-1" data-i18n="新昵称会用这个密码注册；老账号首次登录时设置密码">新昵称会用这个密码注册；老账号首次登录时设置密码</p>
+                </div>
+
                 <button 
                     type="submit" 
                     id="joinBtn"
@@ -89,17 +107,22 @@
         const savedPlayer = localStorage.getItem('poker_player');
         if (savedPlayer) {
             const player = JSON.parse(savedPlayer);
-            // 如果已有玩家信息，直接跳转到大厅
-            location.href = '/lobby';
-            return;
+            if (player && player.token) {
+                // 已登录，直接跳转到大厅
+                location.href = '/lobby';
+                return;
+            }
+            // 旧版本保存的信息没有登录令牌，需要重新登录
+            localStorage.removeItem('poker_player');
         }
+        const passwordInput = document.getElementById('password');
 
         // 输入框回车事件
-        nicknameInput.addEventListener('keypress', function(e) {
+        [nicknameInput, passwordInput].forEach(input => input.addEventListener('keypress', function(e) {
             if (e.key === 'Enter') {
                 handleJoinGame();
             }
-        });
+        }));
 
         // 加入游戏按钮事件
         joinBtn.addEventListener('click', handleJoinGame);
@@ -122,6 +145,7 @@
     // 处理加入游戏
     async function handleJoinGame() {
         const nickname = document.getElementById('nickname').value.trim();
+        const password = document.getElementById('password').value;
         const joinBtn = document.getElementById('joinBtn');
 
         if (!nickname) {
@@ -131,6 +155,11 @@
 
         if (nickname.length > 20) {
             showNotification(I18N.t('昵称长度不能超过20个字符'), 'warning');
+            return;
+        }
+
+        if (password.length < 6) {
+            showNotification(I18N.t('密码至少需要6个字符'), 'warning');
             return;
         }
 
@@ -145,7 +174,8 @@
                     'Content-Type': 'application/json',
                 },
                 body: JSON.stringify({
-                    nickname: nickname
+                    nickname: nickname,
+                    password: password
                 })
             });
 
@@ -156,7 +186,8 @@
                 const playerInfo = {
                     id: data.player.id,
                     nickname: data.player.nickname,
-                    chips: data.player.chips
+                    chips: data.player.chips,
+                    token: data.token
                 };
                 
                 localStorage.setItem('poker_player', JSON.stringify(playerInfo));

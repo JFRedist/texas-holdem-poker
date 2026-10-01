@@ -428,14 +428,15 @@
         
         // 检查玩家登录状态
         const savedPlayer = localStorage.getItem('poker_player');
-        if (!savedPlayer) {
-            console.log('❌ 没有找到玩家信息，重定向到首页');
+        currentPlayer = savedPlayer ? JSON.parse(savedPlayer) : null;
+        if (!currentPlayer || !currentPlayer.token) {
+            console.log('❌ 没有找到登录信息，重定向到首页');
+            localStorage.removeItem('poker_player');
             location.href = '/';
             return;
         }
 
-        console.log('✅ 找到玩家信息:', savedPlayer);
-        currentPlayer = JSON.parse(savedPlayer);
+        console.log('✅ 找到玩家信息:', currentPlayer.nickname);
         myPlayerId = currentPlayer.id;
         updatePlayerInfo();
 
@@ -482,7 +483,7 @@
                 fetch('/api/win_probability', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ table_id: tableId, player_id: myPlayerId })
+                    body: JSON.stringify({ table_id: tableId, token: currentPlayer.token })
                 })
                 .then(r => r.json())
                 .then(res => {
@@ -517,7 +518,7 @@
                 fetch('/api/card_tracking', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ table_id: tableId, player_id: myPlayerId })
+                    body: JSON.stringify({ table_id: tableId, token: currentPlayer.token })
                 })
                 .then(r => r.json())
                 .then(res => {
@@ -685,6 +686,12 @@
         socket.on('error', function(data) {
             console.error('❌ 连接错误:', data);
             showNotification(data.message || '连接错误', 'error');
+            if (data.message && data.message.includes('重新登录')) {
+                localStorage.removeItem('poker_player');
+                setTimeout(() => {
+                    location.href = '/';
+                }, 2000);
+            }
         });
 
         // 监听玩家不存在错误
@@ -702,8 +709,7 @@
         
         // 先注册玩家会话，发送完整的玩家信息
         socket.emit('register_player', { 
-            player_id: myPlayerId,
-            nickname: currentPlayer.nickname
+            token: currentPlayer.token
         });
         
         // 监听注册结果
@@ -1627,7 +1633,7 @@
                 localStorage.setItem('poker_player', JSON.stringify(currentPlayer));
                 
                 // 重新注册会话
-                socket.emit('register_player', { player_id: myPlayerId });
+                socket.emit('register_player', { token: currentPlayer.token });
                 
                 console.log('✅ 玩家ID已同步:', myPlayerId);
                 return true; // 表示进行了同步

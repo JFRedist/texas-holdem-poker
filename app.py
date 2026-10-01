@@ -27,6 +27,7 @@ import traceback
 from typing import Dict, List, Optional
 from flask import Flask, request, jsonify, render_template
 from flask_socketio import SocketIO, emit, join_room, leave_room, rooms
+from werkzeug.security import generate_password_hash, check_password_hash
 import threading
 import sqlite3
 from datetime import datetime
@@ -66,6 +67,10 @@ def default_error_handler(e):
         import traceback
         traceback.print_exc()
     return False  # 不向客户端发送错误信息
+
+# 登录密码长度限制
+MIN_PASSWORD_LENGTH = 6
+MAX_PASSWORD_LENGTH = 64
 
 # 建房可选的初始筹码档位（与 lobby.html 的下拉选项一致）
 ALLOWED_INITIAL_CHIPS = {500, 1000, 2000, 5000, 10000}
@@ -414,25 +419,40 @@ def table_page(table_id):
 def join_game():
     """加入游戏 - 创建或获取用户"""
     try:
-        data = request.get_json()
-        nickname = data.get('nickname', '').strip()
+        data = request.get_json() or {}
+        nickname = str(data.get('nickname') or '').strip()
+        password = data.get('password') or ''
         
         if not validate_nickname(nickname):
             return jsonify({
                 'success': False,
-                'message': '昵称无效。请使用2-20个字符，仅包含字母、数字、中文和基本符号。'
+                'message': '昵称无效。请使用1-20个字符，仅包含字母、数字、中文和基本符号。'
+            }), 400
+
+        if not isinstance(password, str) or not (MIN_PASSWORD_LENGTH <= len(password) <= MAX_PASSWORD_LENGTH):
+            return jsonify({
+                'success': False,
+                'message': f'密码长度需为{MIN_PASSWORD_LENGTH}-{MAX_PASSWORD_LENGTH}个字符'
             }), 400
         
-        # 检查是否已存在该昵称的用户
-        existing_user = db.get_user_by_nickname(nickname)
+        # 检查是否已存在该昵称的真人用户
+        existing_user = db.get_human_user_by_nickname(nickname)
         
         if existing_user:
-            # 用户已存在，返回现有用户信息
             player_id = existing_user['id']
-            print(f"用户 {nickname} 已存在，ID: {player_id}")
+            if existing_user.get('password_hash'):
+                if not check_password_hash(existing_user['password_hash'], password):
+                    return jsonify({'success': False, 'message': '昵称或密码错误'}), 401
+            else:
+                # 旧账号还没有密码：第一次登录时设置的密码即为该账号的密码
+                db.set_password_hash(player_id, generate_password_hash(password))
+                print(f"用户 {nickname} 首次设置密码，ID: {player_id}")
+        elif db.get_user_by_nickname(nickname):
+            # 昵称被机器人占用
+            return jsonify({'success': False, 'message': '该昵称已被占用，请换一个'}), 409
         else:
             # 创建新用户
-            player_id = db.create_user(nickname)
+            player_id = db.create_user(nickname, generate_password_hash(password))
             print(f"创建新用户 {nickname}，ID: {player_id}")
         
         # 更新用户活动时间
@@ -448,6 +468,7 @@ def join_game():
         
         return jsonify({
             'success': True,
+            'token': db.create_auth_token(player_id),
             'player': {
                 'id': player_id,
                 'nickname': nickname,
@@ -763,13 +784,14 @@ def api_card_tracking():
     try:
         data = request.get_json() or {}
         table_id = data.get('table_id')
-        player_id = data.get('player_id')
-        if not table_id or not player_id:
+        if not table_id:
             return jsonify({'success': False, 'message': '参数缺失'}), 400
 
-        # 校验玩家是否有权限
-        player_data = db.get_user(player_id)
-        if not player_data or not player_data.get('has_helper', 0):
+        # 按登录令牌识别玩家，并校验是否有权限
+        player_data = db.get_user_by_token(data.get('token'))
+        if not player_data:
+            return jsonify({'success': False, 'message': '登录已失效，请重新登录'}), 401
+        if not player_data.get('has_helper', 0):
             return jsonify({'success': False, 'message': '无权限访问此功能'}), 403
 
         # 获取内存中的Table对象
@@ -793,9 +815,14 @@ def api_win_probability():
     try:
         data = request.get_json() or {}
         table_id = data.get('table_id')
-        player_id = data.get('player_id')
-        if not table_id or not player_id:
+        if not table_id:
             return jsonify({'success': False, 'message': '参数缺失'}), 400
+
+        # 按登录令牌识别玩家，只能查询自己的胜率
+        player_data = db.get_user_by_token(data.get('token'))
+        if not player_data:
+            return jsonify({'success': False, 'message': '登录已失效，请重新登录'}), 401
+        player_id = player_data['id']
 
         # 获取内存中的Table对象
         table = tables.get(table_id)
@@ -914,32 +941,20 @@ def handle_disconnect():
 
 @socketio.on('register_player')
 def handle_register_player(data):
-    """处理玩家注册"""
+    """处理玩家注册（按 /api/join 签发的登录令牌识别身份）"""
     try:
-        nickname = data.get('nickname', '').strip()
-        if not nickname:
-            emit('error', {'message': '昵称不能为空'})
-            return
-        if not validate_nickname(nickname):
+        player_data = db.get_user_by_token((data or {}).get('token'))
+        if not player_data:
             # 客户端收到含“重新登录”的错误会清除本地登录信息并回到首页
-            emit('error', {'message': '昵称无效，请重新登录'})
+            emit('error', {'message': '登录已失效，请重新登录'})
             return
+        nickname = player_data['nickname']
         
-        # 检查是否已经有相同昵称的玩家在线
-        existing_player = None
-        for table_id, table in tables.items():
-            for player in table.players:
-                if player.nickname == nickname and not player.is_bot:
-                    existing_player = player
-                    break
-            if existing_player:
-                break
-        
-        # 清理当前会话的重复会话（基于昵称）
-        old_sessions_to_remove = []
-        for sid, session_info in player_sessions.items():
-            if session_info['nickname'] == nickname and sid != request.sid:
-                old_sessions_to_remove.append(sid)
+        # 清理同一账号的旧会话
+        old_sessions_to_remove = [
+            sid for sid, session_info in player_sessions.items()
+            if session_info['player_id'] == player_data['id'] and sid != request.sid
+        ]
         
         if old_sessions_to_remove:
             print(f"发现玩家 {nickname} 的重复会话，清理旧会话")
@@ -953,17 +968,6 @@ def handle_register_player(data):
                 # 旧会话已从记录中移除，页面关闭时连接会自然断开
             
             print(f"玩家 {nickname} 旧会话已清理")
-        
-        # 创建或获取玩家数据
-        player_data = db.get_user_by_nickname(nickname)
-        if not player_data:
-            # 使用database.py的create_user方法创建用户
-            player_id = db.create_user(nickname)
-            player_data = db.get_user(player_id)
-        
-        if not player_data:
-            emit('error', {'message': '玩家创建失败'})
-            return
         
         # 注册会话
         session_id = request.sid
@@ -1116,8 +1120,8 @@ def handle_create_table(data):
                                     cursor = conn.cursor()
                                     current_time = time.time()
                                     cursor.execute('''
-                                        INSERT OR IGNORE INTO users (id, nickname, chips, created_at, last_active)
-                                        VALUES (?, ?, ?, ?, ?)
+                                        INSERT OR IGNORE INTO users (id, nickname, chips, created_at, last_active, is_bot)
+                                        VALUES (?, ?, ?, ?, ?, 1)
                                     ''', (bot_id, bot_name, initial_chips, current_time, current_time))
                                     conn.commit()
                                 

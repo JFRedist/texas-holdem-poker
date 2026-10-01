@@ -330,12 +330,14 @@
     document.addEventListener('DOMContentLoaded', function() {
         // 检查玩家登录状态
         const savedPlayer = localStorage.getItem('poker_player');
-        if (!savedPlayer) {
+        currentPlayer = savedPlayer ? JSON.parse(savedPlayer) : null;
+        if (!currentPlayer || !currentPlayer.token) {
+            // 没有登录令牌（未登录或旧版本保存的信息），需要重新登录
+            localStorage.removeItem('poker_player');
             location.href = '/';
             return;
         }
 
-        currentPlayer = JSON.parse(savedPlayer);
         updatePlayerInfo();
 
         // 初始化语言切换按钮
@@ -359,8 +361,7 @@
     function initSocketConnection() {
         // 注册玩家会话
         socket.emit('register_player', {
-            player_id: currentPlayer.id,
-            nickname: currentPlayer.nickname
+            token: currentPlayer.token
         });
 
         // 监听注册结果
@@ -368,7 +369,7 @@
             if (data.success) {
                 console.log('玩家会话注册成功:', data.player);
                 // 更新本地玩家信息
-                currentPlayer = data.player;
+                currentPlayer = { ...data.player, token: currentPlayer.token };
                 localStorage.setItem('poker_player', JSON.stringify(currentPlayer));
                 updatePlayerInfo();
                 
