@@ -1550,6 +1550,12 @@
         let statusText = '';
         let statusClass = 'bg-gray-600';
         
+        if (player.disconnected && player.status !== 'disconnected') {
+            // 弃牌/全下时断线的玩家保留原状态，这里额外显示断线
+            const base = getPlayerStatusDisplay({ ...player, disconnected: false });
+            return base + ` <span class="bg-red-800 text-white px-2 py-1 rounded text-xs">${I18N.t('断线')}</span>`;
+        }
+
         switch (player.status) {
             case 'waiting':
                 statusText = '等待中';
