@@ -24,10 +24,8 @@ def play_hand(first, second, deck_seed):
         for bot in (first, second):
             bot.chips = STACK
             t.add_player(bot)
-        state = random.getstate()
-        random.seed(deck_seed)
+        t.deck.rng = random.Random(deck_seed)
         t.start_new_hand()           # 洗牌、发底牌；之后发公共牌按同一副牌的顺序
-        random.setstate(state)
         guard = 0
         while t.game_stage != GameStage.FINISHED and guard < 20:
             guard += 1
