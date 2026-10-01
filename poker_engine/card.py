@@ -4,6 +4,7 @@ Card and Deck classes for poker game
 """
 
 import random
+import secrets
 from typing import List, Optional
 from enum import Enum
 
@@ -81,8 +82,14 @@ class Card:
 class Deck:
     """牌堆类"""
     
-    def __init__(self):
-        """初始化一副完整的扑克牌（52张）"""
+    def __init__(self, rng: Optional[random.Random] = None):
+        """初始化一副完整的扑克牌（52张）
+
+        Args:
+            rng: 洗牌用的随机源。默认使用操作系统的密码学安全随机数（不可预测）；
+                 测试或复式基准可以传入固定种子的 random.Random 以便复现
+        """
+        self.rng = rng or secrets.SystemRandom()
         self.cards: List[Card] = []
         self.reset()
     
@@ -96,7 +103,7 @@ class Deck:
     def shuffle(self):
         """使用Fisher-Yates算法洗牌"""
         for i in range(len(self.cards) - 1, 0, -1):
-            j = random.randint(0, i)
+            j = self.rng.randint(0, i)
             self.cards[i], self.cards[j] = self.cards[j], self.cards[i]
     
     def deal_card(self) -> Optional[Card]:

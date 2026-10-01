@@ -82,6 +82,10 @@ next_round_votes = {}  # {table_id: {player_id: True/False}}
 
 _bot_processing_locks: Dict[str, threading.Lock] = {}
 
+# 真人行动超时（秒）：超时自动过牌，不能过牌则弃牌。可用环境变量 POKER_ACTION_TIMEOUT 调整，0 表示不限时
+ACTION_TIMEOUT_SECONDS = int(os.environ.get('POKER_ACTION_TIMEOUT', '30'))
+_action_timers: Dict[str, tuple] = {}  # table_id -> (player_id, hand_number, action_count) 当前计时对应的那次轮到
+
 
 def process_bot_actions(table_id: str):
     """处理机器人动作。同一牌桌同时只允许一个处理循环，避免两个任务替同一个机器人重复行动"""
@@ -187,6 +191,9 @@ def _process_bot_actions_locked(table_id: str):
                 print(f"🚫 玩家 {current_player.nickname} 没有筹码，跳过行动通知")
                 return result
                 
+            # 行动超时计时（无论玩家是否在线都要计时，否则断线/挂机会让整桌卡住）
+            arm_action_timer(table_id, current_player)
+
             # 找到该玩家的session并发送行动通知
             player_session = None
             for session_id, session_info in player_sessions.items():
@@ -196,18 +203,123 @@ def _process_bot_actions_locked(table_id: str):
             
             if player_session:
                 print(f"🎯 轮到人类玩家 {current_player.nickname} 行动")
-                socketio.emit('your_turn', {
-                    'current_bet': table.current_bet,
-                    'min_bet': table.big_blind,
-                    'pot': table.pot,
-                    'your_bet': current_player.current_bet,
-                    'your_chips': current_player.chips
-                }, room=player_session)
+                socketio.emit('your_turn', your_turn_payload(table, current_player), room=player_session)
                 
                 return result
     except Exception as e:
         print(f"❌ 处理机器人动作失败: {e}")
         return None
+
+def your_turn_payload(table, player) -> Dict:
+    """轮到真人行动时发给他的信息（最小下注/加注按当前规则计算）"""
+    return {
+        'current_bet': table.current_bet,
+        'min_bet': table.min_bet(),
+        'min_raise_to': table.min_raise_to(),
+        'pot': table.pot,
+        'your_bet': player.current_bet,
+        'your_chips': player.chips,
+        'action_timeout': ACTION_TIMEOUT_SECONDS
+    }
+
+
+def arm_action_timer(table_id: str, player):
+    """轮到真人行动时开始计时，超时后自动过牌（不能过牌则弃牌）。同一次轮到只计时一次"""
+    table = tables.get(table_id)
+    if ACTION_TIMEOUT_SECONDS <= 0 or not table:
+        return
+    key = (player.id, table.hand_number, table.action_count)
+    if _action_timers.get(table_id) == key:
+        return
+    _action_timers[table_id] = key
+
+    def _fire():
+        time.sleep(ACTION_TIMEOUT_SECONDS)
+        handle_action_timeout(table_id, *key)
+
+    socketio.start_background_task(_fire)
+
+
+def handle_action_timeout(table_id: str, player_id: str, hand_number: int, action_count: int):
+    """行动超时：如果仍是同一手牌、同一次轮到该玩家，替他过牌或弃牌并继续牌局"""
+    table = tables.get(table_id)
+    if not table:
+        return None
+    with table.lock:
+        current = table.get_current_player()
+        if (not current or current.id != player_id or table.hand_number != hand_number
+                or table.action_count != action_count):
+            return None  # 玩家已经行动，或牌局已变化
+        action = PlayerAction.CHECK if table.current_bet <= current.current_bet else PlayerAction.FOLD
+        result = table.process_player_action(player_id, action)
+    if result.get('success'):
+        print(f"⏰ 玩家 {current.nickname} 行动超时，自动{result.get('description', '')}")
+        result['description'] = f"超时自动{result.get('description', '')}"
+        finish_player_action(table_id, player_id, action.value, 0, result)
+    return result
+
+
+def resume_table_flow(table_id: str):
+    """有玩家离桌、被移除或重连后继续推进进行中的牌局（轮到机器人则让机器人行动，
+    轮到真人则通知他并开始计时，没人能行动则结算），避免牌局停在原地"""
+    table = tables.get(table_id)
+    if not table or table.game_stage in (GameStage.WAITING, GameStage.FINISHED):
+        return
+    socketio.emit('table_updated', table.get_table_state(), room=table_id)
+    socketio.start_background_task(process_bot_actions, table_id)
+
+
+def find_other_table(player_id: str, table_id: Optional[str] = None) -> Optional[Table]:
+    """玩家已经坐在的其他牌桌（同一个玩家只能同时坐一张桌，否则两张桌会共用同一份筹码和底牌）"""
+    for tid, table in tables.items():
+        if tid != table_id and table.get_player(player_id):
+            return table
+    return None
+
+
+def finish_player_action(table_id: str, player_id: str, action_str: str, amount, result: Dict):
+    """真人动作（含超时自动动作）执行成功后：记日志、广播，然后让机器人继续或结算本手牌"""
+    table = tables.get(table_id)
+    if not table:
+        return
+
+    # 记录玩家动作到日志数据库
+    if table_id in current_hands:
+        hand_id = current_hands[table_id]
+        player = table.get_player(player_id)
+        if player:
+            log_player_action(
+                hand_id, player_id, player.nickname, action_str,
+                amount, table.game_stage.value,
+                player.chips + result.get('amount', 0),  # chips_before
+                player.chips  # chips_after
+            )
+
+    # 发送动作处理结果
+    socketio.emit('action_processed', {
+        'table': table.get_table_state(),
+        'action': result.get('action'),
+        'player_id': player_id,
+        'amount': result.get('amount', 0),
+        'description': result.get('description', '')
+    }, room=table_id)
+
+    if result.get('hand_complete'):
+        print(f"🏆 玩家动作直接导致手牌结束，调用handle_hand_end函数")
+        handle_hand_end(table_id, result.get('winner'), result.get('showdown_info', {}))
+        return
+
+    # 手牌未结束，处理机器人动作。process_bot_actions 已经会发送状态更新、行动通知，
+    # 并在手牌结束时调用 handle_hand_end，这里不能再调用一次（否则结算消息重复）
+    try:
+        print(f"👤 {result.get('description', '')} 完成，开始处理机器人动作...")
+        bot_result = process_bot_actions(table_id)
+        print(f"🔍 机器人处理结果: {bot_result}")
+    except Exception as bot_error:
+        print(f"处理机器人动作时出错: {bot_error}")
+        # 即使机器人处理出错，也要发送状态更新
+        socketio.emit('table_updated', table.get_table_state(), room=table_id)
+
 
 def handle_restart_needed(table_id: str, state_type, data: Dict):
     """处理需要重启的回调"""
@@ -269,8 +381,8 @@ def handle_restart_needed(table_id: str, state_type, data: Dict):
         for player in table.players:
             if not player.is_bot and player.status == PlayerStatus.PLAYING:
                 player_session = None
-                for session_id, player_id in player_sessions.items():
-                    if player_id == player.id:
+                for session_id, session_info in player_sessions.items():
+                    if session_info['player_id'] == player.id:
                         player_session = session_id
                         break
                 
@@ -871,7 +983,8 @@ def handle_disconnect():
                     for table_id, table in list(tables.items()):
                         players_to_remove = [p for p in table.players if p.id == player_id]
                         for player in players_to_remove:
-                            table.remove_player(player.id)
+                            with table.lock:
+                                table.remove_player(player.id)
                             db.leave_table(table_id, player.id)  # 从数据库移除
                             socketio.emit('player_left', {
                                 'nickname': player.nickname,
@@ -879,9 +992,10 @@ def handle_disconnect():
                             }, room=table_id)
                             tables_to_check.append(table_id)
                     
-                    # 检查并清理空房间
+                    # 检查并清理空房间；房间还在时继续推进牌局（被移除的可能正是当前行动者）
                     for table_id in set(tables_to_check):
-                        check_and_cleanup_table(table_id)
+                        if not check_and_cleanup_table(table_id):
+                            resume_table_flow(table_id)
                         
                     # 再次广播更新统计信息
                     online_players = len(player_sessions)
@@ -1001,6 +1115,12 @@ def handle_create_table(data):
         player_info = player_sessions[session_id]
         player_id = player_info['player_id']
         nickname = player_info['nickname']
+        
+        # 同一玩家只能同时坐一张桌
+        other_table = find_other_table(player_id)
+        if other_table:
+            emit('error', {'message': f'您已在房间「{other_table.title}」中，请先离开该房间'})
+            return
         
         # 获取创建参数
         title = data.get('name', data.get('title', '新牌桌')).strip()
@@ -1336,6 +1456,20 @@ def handle_join_table(data):
                 print(f"玩家 {player.nickname} 重连，发送手牌: {[f'{card.rank.symbol}{card.suit.value}' for card in table_player.hole_cards]}")
             
             print(f"玩家 {player.nickname} 重连到房间 {table.title}")
+            # 断线期间牌局可能停在原地（如轮到机器人却没人触发），重连后继续推进；轮到自己时重新收到行动通知
+            resume_table_flow(table_id)
+            return
+        
+        # 同一玩家只能同时坐一张桌（否则两张桌共用同一个玩家对象的筹码、状态和底牌）
+        other_table = find_other_table(player_id, table_id)
+        if other_table:
+            emit('error', {'message': f'您已在房间「{other_table.title}」中，请先离开该房间'})
+            return
+        
+        # 有德州扑克之神（能看到所有人底牌）的桌只能有一名真人
+        if any(p.is_bot and getattr(getattr(p, 'bot_level', None), 'value', None) == 'god' for p in table.players) \
+                and any(not p.is_bot for p in table.players):
+            emit('error', {'message': '该房间有能看到所有底牌的德州扑克之神，只供一名真人练习，无法加入'})
             return
         
         # 新玩家加入 - 处理选座位参数
@@ -1470,6 +1604,11 @@ def handle_add_bot(data):
             level_enum = BotLevel[level_str.upper()]
         except KeyError:
             level_enum = BotLevel.BEGINNER
+        
+        # 德州扑克之神能看到所有人的底牌，只允许在人机练习桌（最多 1 名真人）上添加
+        if level_enum == BotLevel.GOD and not is_bot_practice(table):
+            emit('error', {'message': '德州扑克之神能看到所有人的底牌，只能在只有一名真人的练习桌上添加'})
+            return
         
         # 生成机器人名称
         bot_names = {
@@ -1658,58 +1797,11 @@ def handle_player_action(data):
         # 执行玩家动作
         result = table.process_player_action(player_id, action, amount)
         
-        # 记录玩家动作到日志数据库
-        if table_id in current_hands and result.get('success'):
-            hand_id = current_hands[table_id]
-            player = table.get_player(player_id)
-            if player:
-                log_player_action(
-                    hand_id, player_id, player.nickname, action_str, 
-                    amount, table.game_stage.value, 
-                    player.chips + result.get('amount', 0),  # chips_before
-                    player.chips  # chips_after
-                )
-        
         # 调试：打印result的完整内容
         print(f"🔍 玩家动作处理结果: {result}")
         
         if result.get('success'):
-            # 发送动作处理结果
-            emit('action_processed', {
-                'table': table.get_table_state(),
-                'action': result.get('action'),
-                'player_id': player_id,
-                'amount': result.get('amount', 0),
-                'description': result.get('description', '')
-            }, room=table_id)
-            
-            # 检查手牌是否结束
-            hand_ended = False
-            winners = []
-            
-            if result.get('hand_complete'):
-                print(f"🏆 玩家动作直接导致手牌结束")
-                hand_ended = True
-                showdown_info = result.get('showdown_info', {})
-                winner = result.get('winner')
-            else:
-                # 手牌未结束，处理机器人动作
-                try:
-                    print(f"👤 {result.get('description', '')} 完成，开始处理机器人动作...")
-                    bot_result = process_bot_actions(table_id)  # 使用修改后的函数
-                    print(f"🔍 机器人处理结果: {bot_result}")
-                    
-                    # 注意：process_bot_actions 已经会发送状态更新、行动通知，
-                    # 并在手牌结束时调用 handle_hand_end，这里不能再调用一次（否则结算消息重复）
-                except Exception as bot_error:
-                    print(f"处理机器人动作时出错: {bot_error}")
-                    # 即使机器人处理出错，也要发送状态更新
-                    emit('table_updated', table.get_table_state(), room=table_id)
-            
-            # 统一处理手牌结束后的状态记录
-            if hand_ended:
-                print(f"🏆 手牌结束，调用handle_hand_end函数")
-                handle_hand_end(table_id, winner, showdown_info)
+            finish_player_action(table_id, player_id, action_str, amount, result)
             
     except Exception as e:
         print(f"处理玩家动作失败: {e}")
@@ -1733,8 +1825,9 @@ def handle_leave_table():
         table = tables.get(table_id)
         
         if table:
-            # 从牌桌移除玩家
-            table.remove_player(player_id)
+            # 从牌桌移除玩家（持有牌桌锁，避免与机器人/其他玩家的动作同时修改牌局）
+            with table.lock:
+                table.remove_player(player_id)
             
             # 从数据库移除玩家
             db.leave_table(table_id, player_id)
@@ -1746,8 +1839,9 @@ def handle_leave_table():
             
             print(f"玩家 {player_id} 离开房间 {table.title}")
             
-            # 立即检查是否需要清理房间
-            check_and_cleanup_table(table_id)
+            # 立即检查是否需要清理房间；房间还在时继续推进牌局（离开的可能正是当前行动者）
+            if not check_and_cleanup_table(table_id):
+                resume_table_flow(table_id)
         
         # 清理会话
         if session_id in session_tables:

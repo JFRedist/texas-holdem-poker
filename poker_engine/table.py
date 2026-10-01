@@ -6,9 +6,10 @@ Table management for poker game
 import uuid
 import time
 import random
+import threading
 from typing import List, Dict, Optional, Tuple
 from enum import Enum
-from .card import Card, Deck
+from .card import Card, Deck, Suit, Rank
 from .player import Player, PlayerStatus, PlayerAction
 from .bot import Bot, BotLevel
 from .hand_evaluator import HandEvaluator, HandRank
@@ -66,6 +67,11 @@ class Table:
         self.created_at = time.time()
         self.last_activity = time.time()
         self.on_bot_action = None  # 机器人完成一次行动后的回调钩子（由app层设置，用于逐步广播）
+        self.last_big_blind_id: Optional[str] = None  # 上一手的大盲，下一手大盲从其后一位开始找
+        # 牌桌状态锁：真人动作、机器人动作、离桌/断线/超时处理都在持有它时修改牌局，
+        # 避免 threading 模式下多个线程同时改同一张牌桌（可重入，eventlet 下为协程锁）
+        self.lock = threading.RLock()
+        self.action_count = 0  # 本桌累计的行动次数，用于判断行动超时计时是否仍对应同一次轮到
     
     def add_player(self, player: Player) -> bool:
         """添加玩家到牌桌"""
@@ -130,10 +136,22 @@ class Table:
         if len(active_players) < 2:
             return False
 
-        # 庄家按座位顺序轮换到下一位有筹码的玩家（第一手牌为第一位）
-        if self.dealer_id is None or self.hand_number == 0:
+        n_active = len(active_players)
+        prev_bb = (next((p for p in ordered if p.id == self.last_big_blind_id), None)
+                   if self.hand_number > 0 else None)
+        if prev_bb is not None:
+            # 大盲向前轮转：交给上一手大盲之后的下一位有筹码玩家，有人破产时也不会有人跳过大盲；
+            # 庄家由大盲倒推（单挑时庄家即小盲，在大盲前一位；否则在大盲前两位）
+            start = ordered.index(prev_bb)
+            bb_player = next(ordered[(start + i) % len(ordered)] for i in range(1, len(ordered) + 1)
+                             if ordered[(start + i) % len(ordered)] in active_players)
+            bb_idx = active_players.index(bb_player)
+            dealer = active_players[(bb_idx - (1 if n_active == 2 else 2)) % n_active]
+        elif self.dealer_id is None or self.hand_number == 0:
+            # 第一手牌：第一位为庄家
             dealer = active_players[0]
         else:
+            # 没有上一手大盲的记录（如上一手大盲已离桌）：庄家按座位顺序轮换到下一位有筹码的玩家
             prev = next((p for p in ordered if p.id == self.dealer_id), None)
             if prev is None:
                 dealer = active_players[0]
@@ -143,6 +161,8 @@ class Table:
                               if ordered[(start + i) % len(ordered)] in active_players)
         self.dealer_id = dealer.id
         self.dealer_position = active_players.index(dealer)
+        # 记录本手的大盲位（按比例下注模式也记录，用于下一手的轮转）
+        self.last_big_blind_id = active_players[(self.dealer_position + (1 if n_active == 2 else 2)) % n_active].id
 
         # 重置游戏状态
         self.community_cards = []
@@ -245,7 +265,15 @@ class Table:
         return True
     
     def process_player_action(self, player_id: str, action: PlayerAction, amount: int = 0) -> Dict:
-        """处理玩家动作"""
+        """处理玩家动作（持有牌桌锁，与机器人行动、离桌和超时处理互斥）"""
+        with self.lock:
+            result = self._process_player_action(player_id, action, amount)
+            if result.get('success'):
+                self.action_count += 1
+            return result
+
+    def _process_player_action(self, player_id: str, action: PlayerAction, amount: int = 0) -> Dict:
+        """处理玩家动作（调用方需持有牌桌锁）"""
         player = self.get_player(player_id)
         if not player:
             return {'success': False, 'message': '玩家不存在'}
@@ -437,268 +465,111 @@ class Table:
         }
     
     def process_bot_actions(self):
-        """处理机器人动作 - 持续处理直到轮到人类玩家或游戏结束"""
-        from .bot import Bot
-        import time
-        
-        max_iterations = 15  # 减少最大迭代次数防止死循环
-        iterations = 0
-        consecutive_no_action = 0  # 连续无动作计数
-        global_timeout = time.time() + 30  # 30秒全局超时保护
-        
-        print(f"🤖 开始机器人处理 (最大{max_iterations}轮, 30秒超时)")
-        
-        while iterations < max_iterations and time.time() < global_timeout:
-            iterations += 1
-            had_action_this_round = False
-            
-            # 检查超时
-            if time.time() >= global_timeout:
-                print(f"⏰ 机器人处理超时，强制结束")
-                break
-            
-            # 获取当前应该行动的玩家
-            current_player = self.get_current_player()
-            
-            # 如果没有需要行动的玩家，立即检查游戏流程
-            if not current_player:
-                print(f"🔍 第{iterations}轮：没有需要行动的玩家")
-                flow_result = self.process_game_flow()
-                print(f"🎯 游戏流程检查结果: hand_complete={flow_result.get('hand_complete')}, stage_changed={flow_result.get('stage_changed')}")
-                
-                if flow_result.get('hand_complete'):
-                    print(f"🏆 手牌结束，停止机器人处理")
-                    return flow_result
-                elif flow_result.get('stage_changed'):
-                    print(f"📈 阶段变化，继续处理")
-                    consecutive_no_action = 0  # 重置计数
-                    continue
-                else:
-                    print(f"⚠️ 无玩家行动且无流程变化")
-                    consecutive_no_action += 1
-                    if consecutive_no_action >= 2:  # 减少到2次，更快响应
-                        print(f"💀 连续{consecutive_no_action}轮无变化，强制结束处理")
-                        # 尝试强制推进游戏流程
-                        print(f"🔧 尝试强制推进游戏...")
+        """处理机器人动作：按行动顺序逐个让机器人决策，直到轮到真人、手牌结束或无法推进。
+
+        每个机器人都只在轮到自己时行动；思考延迟期间不持有牌桌锁，执行动作和推进流程时持有。
+        """
+        # 安全上限只用于防止逻辑错误导致死循环。一手牌每条街每人最多行动有限次，
+        # 正常牌局远达不到；达到上限说明牌局状态异常，此时停止而不是替机器人乱序行动
+        max_steps = 1000
+        thinking_delays = {
+            BotLevel.BEGINNER: 1.0,      # 初级 1秒
+            BotLevel.INTERMEDIATE: 1.0,  # 中级 1秒
+            BotLevel.ADVANCED: 1.0,      # 高级 1秒
+            BotLevel.GOD: 1.0            # 神级 1秒
+        }
+        stalled = 0  # 连续无人行动且流程无变化的次数
+
+        print(f"🤖 开始机器人处理")
+        for step in range(1, max_steps + 1):
+            with self.lock:
+                current_player = self.get_current_player()
+
+                # 没有需要行动的玩家：推进游戏流程
+                if not current_player:
+                    if self.game_stage in (GameStage.WAITING, GameStage.FINISHED):
+                        break
+                    flow_result = self.process_game_flow()
+                    if flow_result.get('hand_complete'):
+                        print(f"🏆 手牌结束，停止机器人处理")
+                        return flow_result
+                    if flow_result.get('stage_changed'):
+                        stalled = 0
+                        continue
+                    stalled += 1
+                    if stalled >= 2:
+                        print(f"🔧 无人行动且流程无变化，尝试强制推进游戏...")
                         force_result = self._force_advance_game_flow()
                         if force_result and force_result.get('hand_complete'):
-                            print(f"🏆 强制推进导致手牌结束")
                             return force_result
-                        break
+                        if not (force_result and force_result.get('stage_changed')):
+                            break
+                        stalled = 0
                     continue
-            
-            # 如果轮到人类玩家，停止处理
-            if not isinstance(current_player, Bot):
-                print(f"轮到人类玩家 {current_player.nickname} 行动，停止机器人处理")
-                break
-                
-            # 重置连续无动作计数
-            consecutive_no_action = 0
-            
-            # 处理机器人行动
-            player = current_player
-            print(f"🤖 轮到机器人 {player.nickname} 行动，状态: {player.status.value}, 当前投注: {self.current_bet}, 机器人投注: {player.current_bet}")
-            
-            # 检查机器人状态是否合法
-            if player.status not in [PlayerStatus.PLAYING, PlayerStatus.ALL_IN]:
-                print(f"🤖 机器人 {player.nickname} 状态不合法: {player.status.value}，跳过")
-                player.has_acted = True
-                continue
-            
-            # 检查机器人是否有足够筹码
-            if player.chips <= 0 and player.status != PlayerStatus.ALL_IN:
-                print(f"🤖 机器人 {player.nickname} 筹码不足，自动全下")
-                player.status = PlayerStatus.ALL_IN
-                player.has_acted = True
-                continue
-            
-            # 构建游戏状态
-            game_state = self._bot_game_state(player)
-            
-            # 机器人决策 - 添加异常处理
-            action = None
-            try:
-                action = player.decide_action(game_state)
-            except Exception as e:
-                print(f"❌ 机器人 {player.nickname} 决策出错: {e}")
-                
-            # 如果机器人无法决策，提供默认行动
-            if not action:
-                print(f"🤖 机器人 {player.nickname} 无法决策，使用默认策略")
-                # 默认策略：如果能过牌就过牌，否则弃牌
-                call_amount = self.current_bet - player.current_bet
-                if call_amount == 0:
-                    action = (PlayerAction.CHECK, 0)
-                    print(f"🤖 {player.nickname} 默认行动: 过牌")
-                else:
-                    action = (PlayerAction.FOLD, 0)
-                    print(f"🤖 {player.nickname} 默认行动: 弃牌")
-            
-            if action:
-                action_type, amount = action
-                action_desc = self._get_action_description(action_type, amount)
-                
-                # 根据机器人等级添加思考时间延迟
-                from .bot import BotLevel
-                thinking_delays = {
-                    BotLevel.BEGINNER: 1.0,      # 初级 1秒
-                    BotLevel.INTERMEDIATE: 1.0,  # 中级 1秒
-                    BotLevel.ADVANCED: 1.0,      # 高级 1秒
-                    BotLevel.GOD: 1.0            # 神级 1秒
-                }
-                
-                delay = thinking_delays.get(player.bot_level, 0.0)
-                if delay > 0:
-                    print(f"🤖 {player.nickname} ({player.bot_level.value}) 思考中... ({delay}秒)")
-                    time.sleep(delay)
+                stalled = 0
 
+                # 轮到人类玩家，停止处理
+                if not isinstance(current_player, Bot):
+                    print(f"轮到人类玩家 {current_player.nickname} 行动，停止机器人处理")
+                    break
+
+                player = current_player
+                print(f"🤖 轮到机器人 {player.nickname} 行动，当前投注: {self.current_bet}, 机器人投注: {player.current_bet}")
+                action = None
+                try:
+                    action = player.decide_action(self._bot_game_state(player))
+                except Exception as e:
+                    print(f"❌ 机器人 {player.nickname} 决策出错: {e}")
+                if not action:
+                    # 无法决策：能过牌就过牌，否则弃牌
+                    action = ((PlayerAction.CHECK, 0) if self.current_bet <= player.current_bet
+                              else (PlayerAction.FOLD, 0))
+                action_type, amount = action
+
+            # 思考延迟（不持有锁，其他线程可以读取/广播牌桌状态）
+            delay = thinking_delays.get(player.bot_level, 0.0)
+            if delay > 0:
+                time.sleep(delay)
+
+            with self.lock:
                 # 思考期间牌局可能已变化（如手牌结束或其他流程已替它行动），确认仍轮到它
                 if self.get_current_player() is not player:
                     print(f"🤖 {player.nickname} 已不是当前行动玩家，放弃本次决策")
                     continue
-                
-                print(f"🤖 {player.nickname} 决定: {action_desc}")
-                
-                # 显示机器人手牌（用于调试）
-                if len(player.hole_cards) == 2:
-                    card1_str = f"{player.hole_cards[0].rank.symbol}{player.hole_cards[0].suit.value}"
-                    card2_str = f"{player.hole_cards[1].rank.symbol}{player.hole_cards[1].suit.value}"
-                    print(f"🤖 {player.nickname} 手牌: {card1_str} {card2_str}")
-                
-                # 直接处理机器人动作，不通过process_player_action避免递归（非法金额自动修正为合法值）
+
+                # 直接执行机器人动作（非法金额自动修正为合法值）
                 try:
                     executed = self._execute_action(player, action_type, amount, strict=False)
                     if executed['success']:
                         print(f"🤖 {player.nickname} {executed['description']} (本轮投注: ${player.current_bet})")
-                    elif player.status == PlayerStatus.PLAYING and player.chips > 0:
+                    else:
                         player.fold()
                         print(f"🤖 {player.nickname} 动作无效（{executed['message']}），弃牌")
-                    else:
-                        # 已全下/已出局的玩家不能被弃牌，否则会失去已投入筹码的争夺资格
-                        print(f"🤖 {player.nickname} 无法行动（{executed['message']}），跳过")
-                        continue
-
-                    # 标记机器人已行动
-                    player.has_acted = True
-                    had_action_this_round = True
-                    print(f"✅ 机器人 {player.nickname} 已完成行动")
-                    
-                    # 调用外部回调（app层据此逐步广播桌面状态）
-                    if self.on_bot_action:
-                        try:
-                            self.on_bot_action(player)
-                        except Exception as e:
-                            print(f"⚠️ 机器人行动回调失败: {e}")
-                    
                 except Exception as e:
-                    print(f"❌ 机器人 {player.nickname} 执行动作时出错: {e}")
-                    # 出错时强制弃牌
+                    print(f"❌ 机器人 {player.nickname} 执行动作时出错: {e}，弃牌")
                     player.fold()
-                    player.has_acted = True
-                    had_action_this_round = True
-                    print(f"🤖 {player.nickname} 因错误强制弃牌")
-                
-                # 检查游戏流程是否需要推进
-                flow_result = self.process_game_flow()
-                if flow_result['hand_complete']:
-                    print(f"🏆 机器人动作导致手牌结束: {flow_result}")
-                    # 返回手牌结束的结果，包含完整的摊牌信息
-                    return flow_result
-                elif flow_result['stage_changed']:
-                    print(f"阶段变化: {flow_result}")
-                    # 阶段变化后继续处理机器人
-                    continue
-                    
-            else:
-                print(f"❌ 机器人 {player.nickname} 彻底无法决策，强制弃牌")
-                player.fold()
                 player.has_acted = True
-                had_action_this_round = True
-            
-            # 如果本轮没有任何动作，增加无动作计数
-            if not had_action_this_round:
-                consecutive_no_action += 1
-                print(f"⚠️ 本轮无动作 ({consecutive_no_action}/3)")
-                if consecutive_no_action >= 3:
-                    print("连续3轮无动作，强制结束处理")
-                    break
-        
-        print(f"🏁 机器人处理完成，共处理 {iterations} 轮")
-        
-        # 检查是否有遗留的机器人未完成行动
-        remaining_bots = []
-        for player in self.players:
-            if (isinstance(player, Bot) and 
-                player.status == PlayerStatus.PLAYING and 
-                not player.has_acted):
-                remaining_bots.append(player.nickname)
-        
-        if remaining_bots:
-            print(f"⚠️ 发现未完成行动的机器人: {remaining_bots}")
-            # 让这些机器人正常决策，而不是强制弃牌
-            for player in self.players:
-                if (isinstance(player, Bot) and 
-                    player.status == PlayerStatus.PLAYING and 
-                    not player.has_acted):
-                    print(f"🔧 补充处理机器人 {player.nickname}")
-                    
-                    # 构建游戏状态，让机器人正常决策
-                    game_state = self._bot_game_state(player)
-                    
-                    # 让机器人正常决策
-                    action = None
+                self.action_count += 1
+
+                if self.on_bot_action:
                     try:
-                        action = player.decide_action(game_state)
-                        print(f"🤖 {player.nickname} 补充决策: {action}")
+                        self.on_bot_action(player)
                     except Exception as e:
-                        print(f"❌ 机器人 {player.nickname} 补充决策出错: {e}")
-                    
-                    # 如果机器人无法决策，使用更合理的兜底策略
-                    if not action:
-                        call_amount = self.current_bet - player.current_bet
-                        if call_amount <= 0:
-                            action = (PlayerAction.CHECK, 0)
-                            print(f"🤖 {player.nickname} 兜底策略: 过牌")
-                        elif call_amount <= player.chips * 0.1:  # 只有在成本很低时才跟注
-                            action = (PlayerAction.CALL, call_amount)
-                            print(f"🤖 {player.nickname} 兜底策略: 跟注${call_amount}")
-                        else:
-                            action = (PlayerAction.FOLD, 0)
-                            print(f"🤖 {player.nickname} 兜底策略: 弃牌")
-                    
-                    # 执行机器人决策
-                    if action:
-                        action_type, amount = action
-                        try:
-                            # 防御：补充处理不在正常行动顺序内，不允许改变下注额（否则已行动玩家会突然欠注），
-                            # 下注/加注/全下一律降级为跟注补齐或过牌
-                            if action_type in (PlayerAction.BET, PlayerAction.RAISE, PlayerAction.ALL_IN):
-                                action_type = PlayerAction.CALL
-                            executed = self._execute_action(player, action_type, 0, strict=False)
-                            if executed['success']:
-                                print(f"🤖 {player.nickname} 补充处理: {executed['description']}")
-                            elif player.status == PlayerStatus.PLAYING and player.chips > 0:
-                                player.fold()
-                                print(f"🤖 {player.nickname} 补充处理动作无效，弃牌")
-                        except Exception as e:
-                            print(f"❌ 执行机器人动作失败: {e}")
-                            player.fold()
-                            print(f"🤖 {player.nickname} 因错误弃牌")
-                    
-                    player.has_acted = True
-                    
-                    # 每个机器人决策间隔1秒（与主循环一致）
-                    time.sleep(1.0)
-                    # 调用外部回调逐步广播桌面状态
-                    if self.on_bot_action:
-                        try:
-                            self.on_bot_action(player)
-                        except Exception as e:
-                            print(f"⚠️ 机器人行动回调失败: {e}")
-        
+                        print(f"⚠️ 机器人行动回调失败: {e}")
+
+                flow_result = self.process_game_flow()
+                if flow_result.get('hand_complete'):
+                    print(f"🏆 机器人动作导致手牌结束")
+                    return flow_result
+        else:
+            print(f"⚠️ 机器人处理达到安全上限 {max_steps} 步，停止（牌局状态可能异常）")
+
         # 返回最终的游戏流程状态
-        final_flow_result = self.process_game_flow()
-        print(f"🏁 机器人处理完成，最终流程结果: hand_complete={final_flow_result.get('hand_complete')}, winner={final_flow_result.get('winner')}")
+        with self.lock:
+            if self.game_stage == GameStage.WAITING:
+                return {'stage_changed': False, 'hand_complete': False, 'winner': None, 'message': ''}
+            final_flow_result = self.process_game_flow()
+        print(f"🏁 机器人处理完成，最终流程结果: hand_complete={final_flow_result.get('hand_complete')}")
         return final_flow_result
     
     def add_player_at_position(self, player: Player, position: int) -> bool:
@@ -769,8 +640,9 @@ class Table:
         known_cards.extend(self.community_cards)
         
         # 统计每种花色和点数的剩余数量
-        suits = ['hearts', 'diamonds', 'clubs', 'spades']
-        ranks = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A']
+        # 键与 card.to_dict() 返回的花色/点数一致（花色为 ♥♦♣♠ 符号）
+        suits = [suit.value for suit in Suit]
+        ranks = [rank.symbol for rank in Rank]
         
         remaining_cards = {
             'suits': {suit: 13 for suit in suits},

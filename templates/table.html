@@ -970,7 +970,8 @@
         const callAmount = Math.max(0, data.current_bet - (data.your_bet || 0));
         
         showActionButtons(canCheck, callAmount);
-        showNotification('轮到您行动了', 'info', 2000);
+        // 超时后服务端会自动过牌（不能过牌则弃牌）
+        showNotification(data.action_timeout > 0 ? `轮到您行动了（${data.action_timeout} 秒内）` : '轮到您行动了', 'info', 3000);
         addActionLog('系统', 'your_turn', 0, '轮到您行动');
     }
 
