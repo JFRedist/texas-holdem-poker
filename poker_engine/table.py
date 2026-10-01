@@ -126,6 +126,10 @@ class Table:
     def start_new_hand(self) -> bool:
         """开始新一手牌：只有在线且有筹码的玩家发牌，筹码为 0 的玩家转为观战（BROKE）"""
         ordered = self._seat_order()
+        # 上一手弃牌/全下时断线的玩家保留了原状态，新的一手开始时转为 DISCONNECTED，不再发牌
+        for p in ordered:
+            if p.disconnected and p.status != PlayerStatus.BROKE:
+                p.status = PlayerStatus.DISCONNECTED
         active_players = [p for p in ordered if p.status != PlayerStatus.DISCONNECTED and p.chips > 0]
         if len(active_players) < 2:
             return False

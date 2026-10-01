@@ -59,6 +59,7 @@ class Player:
         # 连接状态
         self.session_id: Optional[str] = None
         self.last_seen = None
+        self.disconnected = False         # 断线标记（弃牌/全下的玩家断线时保留原状态，只打这个标记）
     
     def reset_for_new_hand(self):
         """为新手牌重置玩家状态"""
@@ -76,6 +77,31 @@ class Player:
             else:
                 self.status = PlayerStatus.PLAYING
     
+    def mark_disconnected(self):
+        """断线：已弃牌、全下或破产的玩家保留原状态（弃牌不能复活，全下保留底池资格），
+        只有仍需行动或等待中的玩家改为 DISCONNECTED"""
+        self.disconnected = True
+        if self.status in (PlayerStatus.PLAYING, PlayerStatus.WAITING):
+            self.status = PlayerStatus.DISCONNECTED
+
+    def mark_reconnected(self, in_current_hand: bool, hand_in_progress: bool):
+        """重连：只恢复因断线而改成 DISCONNECTED 的状态，弃牌/全下/破产保持不变
+
+        Args:
+            in_current_hand: 是否是当前这手牌的参与者且仍持有底牌
+            hand_in_progress: 当前是否有一手牌正在进行
+        """
+        self.disconnected = False
+        if self.status != PlayerStatus.DISCONNECTED:
+            return
+        if self.chips <= 0:
+            self.status = PlayerStatus.BROKE
+        elif hand_in_progress and in_current_hand:
+            self.status = PlayerStatus.PLAYING
+        else:
+            # 断线期间这手牌已结束或开了新的一手，没有底牌，等下一手
+            self.status = PlayerStatus.WAITING
+
     def reset_for_new_round(self):
         """为新轮重置玩家状态"""
         self.current_bet = 0
@@ -190,7 +216,8 @@ class Player:
             'is_dealer': self.is_dealer,
             'is_small_blind': self.is_small_blind,
             'is_big_blind': self.is_big_blind,
-            'has_acted': self.has_acted
+            'has_acted': self.has_acted,
+            'disconnected': self.disconnected
         }
         
         if include_hole_cards:

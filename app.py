@@ -895,9 +895,8 @@ def handle_disconnect():
             for table_id, table in list(tables.items()):
                 for player in table.players:
                     if player.id == player_id:
-                        if player.status != PlayerStatus.BROKE:
-                            player.status = PlayerStatus.DISCONNECTED
-                            print(f"玩家 {nickname} 在房间 {table.title} 标记为断线")
+                        player.mark_disconnected()
+                        print(f"玩家 {nickname} 在房间 {table.title} 标记为断线（状态 {player.status.value}）")
                         # 广播更新的房间状态（其他玩家看到"断线"标识）
                         socketio.emit('table_updated', table.get_table_state(), room=table_id)
                         break
@@ -1318,14 +1317,11 @@ def handle_join_table(data):
             
             # 恢复断线玩家的状态（页面跳转/刷新后的重连）
             table_player = table.get_player(player_id)
-            if table_player and table_player.status == PlayerStatus.DISCONNECTED:
-                if table_player.chips > 0:
-                    table_player.status = (PlayerStatus.WAITING if table.game_stage == GameStage.WAITING
-                                           else PlayerStatus.PLAYING)
-                    print(f"玩家 {nickname} 重连，状态恢复为 {table_player.status.value}")
-                else:
-                    table_player.status = PlayerStatus.BROKE
-                    print(f"玩家 {nickname} 重连，无筹码恢复为观察者")
+            if table_player and (table_player.disconnected or table_player.status == PlayerStatus.DISCONNECTED):
+                hand_in_progress = table.game_stage not in (GameStage.WAITING, GameStage.FINISHED)
+                in_current_hand = table_player in table._participants() and len(table_player.hole_cards) == 2
+                table_player.mark_reconnected(in_current_hand, hand_in_progress)
+                print(f"玩家 {nickname} 重连，状态为 {table_player.status.value}")
             
             # 如果游戏正在进行且玩家有手牌，发送手牌
             table_player = table.get_player(player_id)
