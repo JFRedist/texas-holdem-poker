@@ -413,6 +413,16 @@
         }, 30);
     }
 
+    // 转义用户提供的文本（昵称等），防止插入 innerHTML 时执行脚本
+    function escapeHtml(text) {
+        return String(text ?? '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
     document.addEventListener('DOMContentLoaded', function() {
         console.log('🎯 DOMContentLoaded 事件触发');
         
@@ -1224,7 +1234,7 @@
                                 <div class="flex items-center justify-between mb-2">
                                     <div class="flex items-center gap-2">
                                         <span class="text-2xl">${rankEmoji}</span>
-                                        <span class="text-lg font-semibold text-white">${playerType} ${player.nickname}</span>
+                                        <span class="text-lg font-semibold text-white">${playerType} ${escapeHtml(player.nickname)}</span>
                                         <span class="${resultColor} font-medium">
                                             ${player.result === 'winner' ? I18N.t('赢得 ${0}', player.winnings) : I18N.t('败北')}
                                         </span>
@@ -1300,7 +1310,7 @@
             winnersHtml += `
                 <div class="mb-4 p-4 bg-green-800 rounded-lg">
                     <div class="text-lg font-bold text-green-200 mb-2">
-                        🏆 获胜者: ${winner.nickname}
+                        🏆 获胜者: ${escapeHtml(winner.nickname)}
                     </div>
                     <div class="text-green-300 mb-2">
                         获得奖金: $${winner.amount || 0}
@@ -1503,7 +1513,7 @@
             playerDiv.innerHTML = `
                 <div class="flex justify-between items-center mb-1.5">
                     <div class="font-bold ${isMe ? 'text-yellow-400' : 'text-white'} truncate">
-                        ${player.is_bot ? '🤖 ' : '👤 '}${player.nickname} ${isMe ? I18N.t('(你)') : ''}
+                        ${player.is_bot ? '🤖 ' : '👤 '}${escapeHtml(player.nickname)} ${isMe ? I18N.t('(你)') : ''}
                     </div>
                     ${isCurrentPlayer && currentTableState.game_stage !== 'waiting' ? 
                         `<span class="bg-green-500 text-white px-2 py-0.5 rounded-full text-xs font-bold animate-bounce whitespace-nowrap">🎯 ${player.is_bot ? I18N.t('行动中') : I18N.t('你的回合')}</span>` 
@@ -1785,8 +1795,8 @@
         logContainer.innerHTML = recentLogs.map(log => `
             <div class="mb-1 border-b border-gray-600 pb-1">
                 <span class="text-gray-400 text-xs">${log.timestamp}</span>
-                <span class="text-white font-medium">${log.playerName}</span>
-                <span class="text-gray-300">${log.text}</span>
+                <span class="text-white font-medium">${escapeHtml(log.playerName)}</span>
+                <span class="text-gray-300">${escapeHtml(log.text)}</span>
             </div>
         `).join('');
         
@@ -2024,7 +2034,7 @@
                                         ${record.opponents.length > 0 ? `
                                             <div class="text-gray-500 text-xs mt-1">
                                                 对手: ${record.opponents.slice(0, 2).map(op => 
-                                                    `${op.is_bot ? '🤖' : '👤'}${op.nickname}`
+                                                    `${op.is_bot ? '🤖' : '👤'}${escapeHtml(op.nickname)}`
                                                 ).join(', ')}${record.opponents.length > 2 ? '...' : ''}
                                             </div>
                                         ` : ''}
@@ -2074,7 +2084,7 @@
         modal.innerHTML = `
             <div class="bg-gray-800 rounded-lg p-6 max-w-6xl w-full mx-4 max-h-[90vh] overflow-y-auto">
                 <div class="flex justify-between items-center mb-4">
-                    <h3 class="text-xl font-bold text-white">📊 ${data.nickname} 的详细摊牌历史</h3>
+                    <h3 class="text-xl font-bold text-white">📊 ${escapeHtml(data.nickname)} 的详细摊牌历史</h3>
                     <button onclick="this.closest('.fixed').remove()" class="text-gray-400 hover:text-white">
                         <span class="text-2xl">&times;</span>
                     </button>
@@ -2142,7 +2152,7 @@
                                             ${record.opponents.map(opponent => `
                                                 <div class="flex justify-between">
                                                     <span class="text-gray-300">
-                                                        ${opponent.is_bot ? '🤖' : '👤'} ${opponent.nickname}
+                                                        ${opponent.is_bot ? '🤖' : '👤'} ${escapeHtml(opponent.nickname)}
                                                     </span>
                                                     <span class="text-gray-400">
                                                         #${opponent.rank_position} ${opponent.hand_description}
@@ -2181,7 +2191,7 @@
                 <div><strong>游戏阶段:</strong> <span class="text-yellow-400">${currentTableState.game_stage || 'unknown'}</span></div>
                 <div><strong>当前玩家:</strong> <span class="text-green-400">${currentTableState.current_player_id || 'none'}</span></div>
                 <div><strong>我的ID:</strong> <span class="text-blue-400">${myPlayerId || 'none'}</span></div>
-                <div><strong>我的昵称:</strong> <span class="text-blue-400">${currentPlayer ? currentPlayer.nickname : 'none'}</span></div>
+                <div><strong>我的昵称:</strong> <span class="text-blue-400">${currentPlayer ? escapeHtml(currentPlayer.nickname) : 'none'}</span></div>
                 <div><strong>找到我的玩家:</strong> <span class="text-${myPlayer ? 'green' : 'red'}-400">${myPlayer ? '✅' : '❌'}</span></div>
                 ${myPlayer ? `
                     <div><strong>我的状态:</strong> <span class="text-purple-400">${myPlayer.status}</span></div>

@@ -67,6 +67,9 @@ def default_error_handler(e):
         traceback.print_exc()
     return False  # 不向客户端发送错误信息
 
+# 建房可选的初始筹码档位（与 lobby.html 的下拉选项一致）
+ALLOWED_INITIAL_CHIPS = {500, 1000, 2000, 5000, 10000}
+
 # 全局状态管理
 tables: Dict[str, Table] = {}
 players: Dict[str, Player] = {}
@@ -917,6 +920,10 @@ def handle_register_player(data):
         if not nickname:
             emit('error', {'message': '昵称不能为空'})
             return
+        if not validate_nickname(nickname):
+            # 客户端收到含“重新登录”的错误会清除本地登录信息并回到首页
+            emit('error', {'message': '昵称无效，请重新登录'})
+            return
         
         # 检查是否已经有相同昵称的玩家在线
         existing_player = None
@@ -1017,6 +1024,11 @@ def handle_create_table(data):
         
         if small_blind <= 0 or big_blind <= small_blind or max_players < 2 or max_players > 9:
             emit('error', {'message': '游戏参数无效'})
+            return
+
+        # 初始筹码只允许大厅提供的几档，防止建房时刷出任意数量的筹码
+        if initial_chips not in ALLOWED_INITIAL_CHIPS or big_blind > initial_chips // 2:
+            emit('error', {'message': '初始筹码无效'})
             return
         
         # 生成房间ID
