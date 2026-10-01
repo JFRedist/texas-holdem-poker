@@ -56,6 +56,7 @@ class Table:
         self.last_raise_size = self.min_raise  # 本轮最近一次完整加注的幅度（最小加注 = 当前下注 + 该值）
         self.hand_players: List[Player] = []   # 本手牌发到牌的玩家（按座位顺序），用于行动顺序与边池结算
         self.dealer_id: Optional[str] = None
+        self.last_actor_id: Optional[str] = None  # 本街最近一次主动行动的玩家，下一位从其后开始找
 
         self.dealer_position = 0
         self.current_player_position = 0
@@ -152,6 +153,7 @@ class Table:
         self.hand_number += 1
         self.game_stage = GameStage.PRE_FLOP  # 明确设置为PRE_FLOP阶段
         self.hand_players = active_players
+        self.last_actor_id = None
 
         self.deck.reset()
         self.deck.shuffle()
@@ -324,6 +326,7 @@ class Table:
 
         def done(act, added, desc):
             player.has_acted = True
+            self.last_actor_id = player.id
             # 通知其他机器人，用于对手建模（盲注不经过这里，不会计入主动入池）
             for other in self.players:
                 if isinstance(other, Bot) and other is not player:
@@ -580,6 +583,7 @@ class Table:
 
                     # 标记机器人已行动
                     player.has_acted = True
+                    self.last_actor_id = player.id
                     had_action_this_round = True
                     print(f"✅ 机器人 {player.nickname} 已完成行动")
                     
@@ -827,6 +831,11 @@ class Table:
             # 翻牌后：庄家下一位先行动
             start = (dealer_idx + 1) % n
 
+        # 本街已有人行动时，从上一位行动者的下一位开始找（加注后按座位顺序轮转，而不是回到本街首位）
+        last_idx = next((i for i, p in enumerate(order) if p.id == self.last_actor_id), None)
+        if last_idx is not None:
+            start = (last_idx + 1) % n
+
         for i in range(n):
             player = order[(start + i) % n]
             if player not in can_act:
@@ -934,6 +943,7 @@ class Table:
         # 重置当前投注和玩家下注金额，以及行动状态（全下玩家的本轮投注也清零，总投入保留在 total_bet）
         self.current_bet = 0
         self.last_raise_size = self.min_bet()
+        self.last_actor_id = None
         for player in self.players:
             if player.status in (PlayerStatus.PLAYING, PlayerStatus.ALL_IN):
                 player.current_bet = 0

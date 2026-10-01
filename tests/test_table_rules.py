@@ -1,5 +1,5 @@
 """
-牌桌规则测试：破产玩家、边池、平分底池、全下后行动、退还无人跟注筹码、最小加注、单挑行动顺序，
+牌桌规则测试：破产玩家、边池、平分底池、全下后行动、退还无人跟注筹码、最小加注、单挑行动顺序、再加注后的行动顺序，
 以及数千手随机牌局的筹码守恒模糊测试。
 运行：python tests/test_table_rules.py
 """
@@ -212,4 +212,22 @@ first = t.hand_players[(t.hand_players.index(dealer) + 1) % 6]
 check('位置：庄家 late、庄家下一位 early', t._position_of(dealer) == 'late' and t._position_of(first) == 'early')
 gs = t._bot_game_state(t.get_current_player())
 check('机器人牌局信息包含需跟注额与最小加注', gs['to_call'] == 20 and gs['min_raise_to'] == 40 and gs['num_opponents'] == 5)
+# 12. 再加注后按座位顺序继续行动，不回到本街首位
+t, ps = make([1000] * 4)
+with quiet(): t.start_new_hand()            # P0 庄家 P1 小盲 P2 大盲 P3 UTG
+act(t, A.RAISE, 60)                          # UTG 加注
+act(t, A.CALL)                               # 庄家跟注
+p, _ = act(t, A.RAISE, 180)                  # 小盲再加注
+check('翻牌前再加注后轮到大盲', p is ps[1] and t.get_current_player() is ps[2], t.get_current_player().nickname)
+seq = [act(t, A.CALL)[0] for _ in range(3)]
+check('翻牌前再加注后按大盲、UTG、庄家顺序跟注', seq == [ps[2], ps[3], ps[0]] and t.game_stage == GameStage.FLOP,
+      [x.nickname for x in seq])
+act(t, A.BET, 100)                           # 翻牌后小盲下注
+act(t, A.RAISE, 300)                         # 大盲加注
+act(t, A.RAISE, 600)                         # UTG 再加注
+check('翻牌后再加注后轮到庄家', t.get_current_player() is ps[0], t.get_current_player().nickname)
+seq = [act(t, A.CALL)[0] for _ in range(3)]
+check('翻牌后再加注后按庄家、小盲、大盲顺序跟注', seq == [ps[0], ps[1], ps[2]] and t.game_stage == GameStage.TURN,
+      [x.nickname for x in seq])
+
 print('\n全部通过' if not fails else f'\n失败 {len(fails)} 项: {fails}')
