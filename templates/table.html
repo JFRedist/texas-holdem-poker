@@ -19,7 +19,9 @@
                     </p>
                 </div>
                 <div id="tableNotification" role="status" aria-live="polite" aria-atomic="true"></div>
-                <div class="flex space-x-2" id="tableActions">
+                <div class="flex" id="tableActions">
+                    <a href="/lobby" class="table-lobby-link" data-i18n="游戏大厅">游戏大厅</a>
+                    <button type="button" onclick="I18N.toggle()" title="中文 / English">中文 / EN</button>
                     <button id="startHandBtn" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded text-sm hidden">
                         <span data-i18n="开始游戏">开始游戏</span>
                     </button>
@@ -34,14 +36,7 @@
         </div>
 
 <div class="table-layout">
-<aside class="table-navigation" aria-label="牌桌导航">
-<a href="/lobby" data-i18n="游戏大厅">游戏大厅</a>
-<a href="#handAnalysisPanel" data-i18n="牌型分析">牌型分析</a>
-<a href="#logSection" data-i18n="操作记录">操作记录</a>
-<a href="#historySection" data-i18n="个人记录">个人记录</a>
-<a href="#stateSection" data-i18n="游戏状态">游戏状态</a>
-<button type="button" onclick="I18N.toggle()" title="中文 / English">中文 / EN</button>
-</aside>
+
 <section class="game-column" aria-label="牌桌"><div class="table-stage">
             <!-- 公共牌区域 -->
             <div class="board-center">
