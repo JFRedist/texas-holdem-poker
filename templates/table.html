@@ -2,11 +2,12 @@
 
 {% block title %}德州扑克游戏 - 牌桌{% endblock %}
 
+{% block page_class %}page-table{% endblock %}
+
 {% block content %}
-<div class="min-h-screen bg-gray-900 py-4">
-    <div class="max-w-7xl mx-auto px-4">
+<div class="poker-workspace">
         <!-- 牌桌信息栏 -->
-        <div class="bg-gray-800 rounded-xl p-4 mb-4 border border-gray-700">
+        <div class="table-heading">
             <div class="flex justify-between items-center">
                 <div>
                     <h1 class="text-xl font-bold text-white" id="tableTitle" data-i18n="牌桌">牌桌</h1>
@@ -17,7 +18,10 @@
                         <span data-i18n="手牌:">手牌:</span> <span id="handNumber">0</span>
                     </p>
                 </div>
-                <div class="flex space-x-2">
+                <div id="tableNotification" role="status" aria-live="polite" aria-atomic="true"></div>
+                <div class="flex" id="tableActions">
+                    <a href="/lobby" class="table-lobby-link" data-i18n="游戏大厅">游戏大厅</a>
+                    <button type="button" onclick="I18N.toggle()" title="中文 / English">中文 / EN</button>
                     <button id="startHandBtn" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded text-sm hidden">
                         <span data-i18n="开始游戏">开始游戏</span>
                     </button>
@@ -31,43 +35,34 @@
             </div>
         </div>
 
-        <!-- 游戏区域 -->
-        <div class="bg-gray-800 rounded-xl p-6 border border-gray-700">
+<div class="table-layout">
+
+<section class="game-column" aria-label="牌桌"><div class="table-stage">
             <!-- 公共牌区域 -->
-            <div class="text-center mb-8">
+            <div class="board-center">
                 <h3 class="text-lg font-semibold text-white mb-4" data-i18n="公共牌">公共牌</h3>
                 <div id="communityCards" class="flex justify-center space-x-2 mb-4">
                     <!-- 公共牌将在这里显示 -->
                 </div>
-                <div class="text-xl font-bold text-yellow-400">
+                <div class="pot-label">
                     <span data-i18n="底池:">底池:</span> $<span id="potDisplay">0</span>
                 </div>
 
-                <!-- 牌型分析面板 -->
-                <div id="handAnalysisPanel" class="mt-4 bg-gray-900/60 rounded-lg p-3 border border-gray-700 text-left">
-                    <div class="flex items-center justify-between mb-2">
-                        <h4 class="text-sm font-bold text-white">🔍 <span data-i18n="牌型分析">牌型分析</span></h4>
-                        <span id="analysisMeta" class="text-xs text-gray-500"></span>
-                    </div>
-                    <div id="analysisBoardBest" class="text-sm text-gray-300 mb-1"></div>
-                    <div id="analysisMyStrength" class="text-sm mb-2"></div>
-                    <div id="analysisOppDist" class="text-xs space-y-1"></div>
-                </div>
             </div>
-
             <!-- 玩家区域 -->
-            <div id="playersArea" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
+            <div id="playersArea" class="player-orbit">
                 <!-- 玩家信息将在这里显示 -->
             </div>
 
             <!-- 您的手牌 -->
-            <div class="bg-gray-700 rounded-lg p-4 mb-4">
+            <div class="hero-hand">
                 <h3 class="text-lg font-semibold text-white mb-2" data-i18n="您的手牌">您的手牌</h3>
                 <div id="myCards" class="flex space-x-2">
                     <!-- 手牌将在这里显示 -->
                 </div>
             </div>
 
+</div>
             <!-- 操作按钮 -->
             <div id="actionButtons" class="bg-gray-700 rounded-lg p-4 hidden">
                 <div class="flex flex-wrap gap-2 justify-center">
@@ -97,6 +92,7 @@
                         <input 
                             type="number" 
                             id="betAmount" 
+                            aria-label="下注金额"
                             class="bg-gray-600 text-white px-3 py-2 rounded w-32"
                             placeholder="输入金额"
                             data-i18n-placeholder="输入金额"
@@ -105,6 +101,7 @@
                         <input 
                             type="range" 
                             id="betSlider" 
+                            aria-label="下注金额滑块"
                             class="w-48 sm:w-56 accent-yellow-500"
                             min="1" max="1000" step="10" value="100"
                             title="拖动调整下注金额"
@@ -132,20 +129,19 @@
                 </button>
             </div>
 
-            <!-- 游戏状态调试 -->
-            <div class="bg-gray-700 rounded-lg p-4 mt-4">
-                <h3 class="text-lg font-semibold text-white mb-2"><span data-i18n="游戏状态">游戏状态</span> 
-                    <button id="refreshStateBtn" class="bg-blue-600 hover:bg-blue-700 text-white px-2 py-1 rounded text-xs ml-2">
-                        <span data-i18n="刷新">刷新</span>
-                    </button>
-                </h3>
-                <div id="gameStateInfo" class="text-sm text-gray-300">
-                    <div class="text-gray-500" data-i18n="点击刷新查看状态">点击刷新查看状态</div>
+</section>
+<aside class="table-sidebar">                <!-- 牌型分析面板 -->
+                <div id="handAnalysisPanel" class="mt-4 bg-gray-900/60 rounded-lg p-3 border border-gray-700 text-left">
+                    <div class="flex items-center justify-between mb-2">
+                        <h4 class="text-sm font-bold text-white">🔍 <span data-i18n="牌型分析">牌型分析</span></h4>
+                        <span id="analysisMeta" class="text-xs text-gray-500"></span>
+                    </div>
+                    <div id="analysisBoardBest" class="text-sm text-gray-300 mb-1"></div>
+                    <div id="analysisMyStrength" class="text-sm mb-2"></div>
+                    <div id="analysisOppDist" class="text-xs space-y-1"></div>
                 </div>
-            </div>
-
             <!-- 操作记录 -->
-            <div class="bg-gray-700 rounded-lg p-4 mt-4">
+            <div class="side-section" id="logSection">
                 <h3 class="text-lg font-semibold text-white mb-2" data-i18n="操作记录">操作记录</h3>
                 <div id="actionLog" class="max-h-40 overflow-y-auto text-sm text-gray-300">
                     <div class="text-gray-500" data-i18n="暂无操作记录">暂无操作记录</div>
@@ -153,7 +149,7 @@
             </div>
 
             <!-- 个人历史记录 -->
-            <div class="bg-gray-700 rounded-lg p-4 mt-4">
+            <div class="side-section" id="historySection">
                 <h3 class="text-lg font-semibold text-white mb-2">个人记录
                     <button id="viewHistoryBtn" class="bg-purple-600 hover:bg-purple-700 text-white px-3 py-1 rounded text-sm ml-2">
                         📊 查看历史
@@ -163,11 +159,19 @@
                     <div class="text-gray-500">点击查看历史记录加载个人统计</div>
                 </div>
             </div>
+            <!-- 游戏状态调试 -->
+            <div class="side-section" id="stateSection" hidden>
+                <h3 class="text-lg font-semibold text-white mb-2"><span data-i18n="游戏状态">游戏状态</span>
+                    <button id="refreshStateBtn" class="bg-blue-600 hover:bg-blue-700 text-white px-2 py-1 rounded text-xs ml-2">
+                        <span data-i18n="刷新">刷新</span>
+                    </button>
+                </h3>
+                <div id="gameStateInfo" class="text-sm text-gray-300">
+                    <div class="text-gray-500" data-i18n="点击刷新查看状态">点击刷新查看状态</div>
+                </div>
+            </div>
 
-
-        </div>
-    </div>
-</div>
+</aside></div></div>
 {% endblock %}
 
 {% block scripts %}
@@ -440,25 +444,6 @@
         // 连接到牌桌
         console.log('🚀 页面初始化，玩家信息:', { myPlayerId, currentPlayer });
         connectToTable();
-        
-        // 测试玩家显示区域
-        const playersArea = document.getElementById('playersArea');
-        console.log('👥 玩家显示区域:', playersArea ? '存在' : '不存在');
-        if (playersArea) {
-            console.log('👥 玩家显示区域HTML:', playersArea.innerHTML);
-            
-            // 手动测试显示机器人
-            setTimeout(() => {
-                console.log('🧪 手动测试显示机器人...');
-                const testPlayers = [
-                    { id: 'test1', nickname: 'hyq', chips: 1000, is_bot: false, status: 'waiting' },
-                    { id: 'test2', nickname: '🤖 新手1', chips: 1000, is_bot: true, status: 'waiting' },
-                    { id: 'test3', nickname: '🤖 老司机2', chips: 1000, is_bot: true, status: 'waiting' }
-                ];
-                
-                displayPlayers(testPlayers);
-            }, 2000);
-        }
 
         // 检查是否 test 账号，显示胜率计算器按钮
         if (currentPlayer && currentPlayer.nickname === 'test') {
@@ -1452,48 +1437,28 @@
         const container = document.getElementById('playersArea');
         container.innerHTML = '';
 
-        players.forEach(player => {
+        const heroIndex = players.findIndex(p => p.id === myPlayerId ||
+            (currentPlayer && p.nickname === currentPlayer.nickname));
+        container.dataset.count = players.length;
+        players.forEach((player, index) => {
             console.log(`处理玩家: ${player.nickname}, is_bot: ${player.is_bot}`);
             const playerDiv = document.createElement('div');
             
             // 判断是否是我：优先通过ID，其次通过昵称
             const isMe = (player.id === myPlayerId) || 
                         (currentPlayer && player.nickname === currentPlayer.nickname);
-            const statusClass = player.status === 'playing' ? 'text-green-400' : 'text-gray-400';
+            const nickname = document.createElement('span');
+            nickname.textContent = player.nickname;
             
             // 检查是否是当前行动的玩家
             const isCurrentPlayer = currentTableState && currentTableState.current_player_id === player.id;
             
-            // 基础样式
-            let bgClass = 'bg-gray-600';
-            let borderClass = 'border-2 border-transparent';
-            let extraClass = '';
-            
-            // 高亮当前行动的玩家 - 更强的视觉效果
-            if (isCurrentPlayer && currentTableState.game_stage !== 'waiting') {
-                if (player.is_bot) {
-                    // 机器人轮次 - 橙色突出显示
-                    bgClass = 'bg-orange-600';
-                    borderClass = 'border-4 border-orange-300 shadow-xl shadow-orange-500/60';
-                    extraClass = 'animate-pulse transform scale-105';
-                } else {
-                    // 人类玩家轮次 - 蓝色突出显示
-                    bgClass = 'bg-blue-700';
-                    borderClass = 'border-4 border-yellow-300 shadow-xl shadow-yellow-400/60';
-                    extraClass = 'animate-pulse transform scale-105';
-                }
-            }
-            
-            // dealer玩家特殊背景 - 更明显的标识
-            if (player.is_dealer) {
-                if (!isCurrentPlayer || currentTableState.game_stage === 'waiting') {
-                    bgClass = 'bg-red-700';
-                    borderClass = 'border-3 border-red-300 shadow-lg shadow-red-400/50';
-                    extraClass = 'transform scale-102';
-                }
-            }
-            
-            playerDiv.className = `${bgClass} ${borderClass} ${extraClass} rounded-lg p-3 transition-all duration-300`;
+            const seatIndex = (index - Math.max(0, heroIndex) + players.length) % players.length;
+            const angle = Math.PI / 2 + seatIndex * 2 * Math.PI / players.length;
+            playerDiv.className = `seat ${isMe ? 'seat-me' : ''} ${isCurrentPlayer && currentTableState.game_stage !== 'waiting' ? 'seat-active' : ''}`;
+            playerDiv.dataset.seatIndex = seatIndex;
+            playerDiv.style.setProperty('--seat-x', `${50 + 39 * Math.cos(angle)}%`);
+            playerDiv.style.setProperty('--seat-y', `${50 + 38 * Math.sin(angle)}%`);
             
             // 计算该玩家还需跟注的金额（仅对仍在局中的玩家有意义）
             const needCall = (player.status === 'playing' && currentTableState.game_stage !== 'waiting')
@@ -1503,7 +1468,7 @@
             playerDiv.innerHTML = `
                 <div class="flex justify-between items-center mb-1.5">
                     <div class="font-bold ${isMe ? 'text-yellow-400' : 'text-white'} truncate">
-                        ${player.is_bot ? '🤖 ' : '👤 '}${player.nickname} ${isMe ? I18N.t('(你)') : ''}
+                        ${player.is_bot ? '🤖 ' : '👤 '}${nickname.innerHTML} ${isMe ? I18N.t('(你)') : ''}
                     </div>
                     ${isCurrentPlayer && currentTableState.game_stage !== 'waiting' ? 
                         `<span class="bg-green-500 text-white px-2 py-0.5 rounded-full text-xs font-bold animate-bounce whitespace-nowrap">🎯 ${player.is_bot ? I18N.t('行动中') : I18N.t('你的回合')}</span>` 
@@ -1704,12 +1669,13 @@
     function createCardElement(card, isBack = false) {
         console.log('createCardElement 调用，参数:', { card, isBack });
         const cardDiv = document.createElement('div');
-        cardDiv.className = 'w-16 h-24 rounded-lg border-2 flex items-center justify-center text-lg font-bold';
+        cardDiv.className = 'playing-card w-16 h-24 rounded-lg border-2 flex items-center justify-center text-lg font-bold';
         
         if (isBack || !card) {
             // 牌背面
-            cardDiv.className += ' bg-blue-600 border-blue-400 text-white';
-            cardDiv.textContent = '🂠';
+            cardDiv.className += ' card-back bg-blue-600 border-blue-400 text-white';
+            cardDiv.textContent = '';
+            cardDiv.setAttribute('aria-label', I18N.t('公共牌'));
             console.log('创建牌背面');
         } else {
             // 牌正面 - 处理 card.to_dict() 格式
@@ -2246,4 +2212,4 @@
     });
 
 </script>
-{% endblock %} 
+{% endblock %}

@@ -62,14 +62,16 @@
             max-width: 300px;
         }
     </style>
+    <link rel="stylesheet" href="/static/css/redesign.css">
+    {% block head %}{% endblock %}
 </head>
-<body class="bg-gray-900 text-white min-h-screen">
+<body class="bg-gray-900 text-white min-h-screen {% block page_class %}{% endblock %}">
     <!-- 顶部导航 -->
-    <nav class="bg-gray-800 shadow-lg">
+    <nav class="bg-gray-800 shadow-lg site-nav">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div class="flex justify-between h-16">
                 <div class="flex items-center">
-                    <a href="/" class="text-xl font-bold text-white">🃏 <span data-i18n="德州扑克">德州扑克</span></a>
+                    <a href="/" class="text-xl font-bold text-white"><span class="brand-mark" aria-hidden="true">♠</span> <span data-i18n="德州扑克">德州扑克</span></a>
                 </div>
                 <div class="flex items-center space-x-4">
                     <span id="playerInfo" class="text-gray-300"></span>
@@ -141,11 +143,18 @@
         // 显示通知
         function showNotification(message, type = 'info') {
             const notification = document.createElement('div');
-            notification.className = `p-4 rounded-lg shadow-lg mb-2 ${getNotificationClass(type)}`;
+            const inlineContainer = document.getElementById('tableNotification');
+            notification.className = inlineContainer
+                ? `table-notice table-notice-${type}`
+                : `p-4 rounded-lg shadow-lg mb-2 ${getNotificationClass(type)}`;
             notification.textContent = message;
             
-            const container = document.getElementById('notifications');
-            container.appendChild(notification);
+            const container = inlineContainer || document.getElementById('notifications');
+            if (inlineContainer) {
+                container.replaceChildren(notification);
+            } else {
+                container.appendChild(notification);
+            }
             
             // 自动移除通知
             setTimeout(() => {

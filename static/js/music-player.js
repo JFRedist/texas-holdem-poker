@@ -188,7 +188,7 @@ class MusicPlayer {
         this.isPlaying = false;
         this.volume = 0.3; // 默认音量30%
         this.currentTrack = null;
-        this.position = 'top-right'; // 默认位置
+        this.position = 'bottom-right'; // 默认避开牌桌顶部操作
         this.isVisible = true; // 控制面板是否可见
         this.promptShown = false; // 当前页面是否已显示过播放提示
         this.synth = new SynthMusic(); // mp3 缺失时使用的内置合成音乐
@@ -208,7 +208,7 @@ class MusicPlayer {
         // 从localStorage读取用户设置
         const savedVolume = localStorage.getItem('musicVolume');
         const savedMuted = localStorage.getItem('musicMuted') === 'true';
-        const savedPosition = localStorage.getItem('musicPosition') || 'top-right';
+        const savedPosition = localStorage.getItem('musicPosition') || 'bottom-right';
         const savedVisible = localStorage.getItem('musicVisible');
         
         if (savedVolume !== null) {
@@ -744,10 +744,10 @@ class MusicPlayer {
         panel.classList.remove('position-left', 'position-bottom');
         
         // 重置样式
-        panel.style.top = '';
-        panel.style.bottom = '';
-        panel.style.left = '';
-        panel.style.right = '';
+        panel.style.top = 'auto';
+        panel.style.bottom = 'auto';
+        panel.style.left = 'auto';
+        panel.style.right = 'auto';
         
         // 根据位置设置样式
         switch(this.position) {
@@ -835,10 +835,10 @@ class MusicPlayer {
     // 更新显示按钮位置
     updateShowButtonPosition(button) {
         // 清除所有位置样式
-        button.style.top = '';
-        button.style.bottom = '';
-        button.style.left = '';
-        button.style.right = '';
+        button.style.top = 'auto';
+        button.style.bottom = 'auto';
+        button.style.left = 'auto';
+        button.style.right = 'auto';
         
         // 根据面板位置设置显示按钮位置
         switch(this.position) {
