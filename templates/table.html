@@ -1460,6 +1460,7 @@
             const seatIndex = (index - Math.max(0, heroIndex) + players.length) % players.length;
             const angle = Math.PI / 2 + seatIndex * 2 * Math.PI / players.length;
             playerDiv.className = `seat ${isMe ? 'seat-me' : ''} ${isCurrentPlayer && currentTableState.game_stage !== 'waiting' ? 'seat-active' : ''}`;
+            playerDiv.dataset.seatIndex = seatIndex;
             playerDiv.style.setProperty('--seat-x', `${50 + 39 * Math.cos(angle)}%`);
             playerDiv.style.setProperty('--seat-y', `${50 + 38 * Math.sin(angle)}%`);
             

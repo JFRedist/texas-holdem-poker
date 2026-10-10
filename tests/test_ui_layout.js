@@ -10,7 +10,7 @@ const context = {
     currentTableState: {current_player_id: 'hero', game_stage: 'flop', current_bet: 20},
     I18N: {t: text => text}, getPlayerStatusDisplay: () => 'playing',
     document: {getElementById: () => container, createElement() {
-        return {style: {values: {}, setProperty(k, v) {this.values[k] = v;}},
+        return {dataset: {}, style: {values: {}, setProperty(k, v) {this.values[k] = v;}},
             set textContent(value) {this.innerHTML = String(value).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');}};
     }}
 };
@@ -24,6 +24,8 @@ for (let n = 2; n <= 9; n++) {
     assert.equal(new Set(container.children.map(el => JSON.stringify(el.style.values))).size, n);
     const hero = container.children[n - 1];
     assert.match(hero.className, /seat-me seat-active/);
+    assert.equal(hero.dataset.seatIndex, 0);
+    assert.equal(new Set(container.children.map(el => el.dataset.seatIndex)).size, n);
     assert.equal(hero.style.values['--seat-y'], '88%');
     assert.ok(Math.abs(parseFloat(hero.style.values['--seat-x']) - 50) < 0.001);
     assert.ok(container.children[0].innerHTML.includes('&lt;img src=x&gt;'));
