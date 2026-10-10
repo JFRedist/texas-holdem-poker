@@ -167,3 +167,31 @@ button.bg-yellow-600,button.bg-orange-600{background:#2bbdb7!important;color:#06
 @media(max-width:640px){#tableNotification{flex:auto;min-width:0;width:100%}.table-heading>div{gap:10px}}
 
 @media(max-width:950px){.entry-layout{justify-content:center;padding:24px 16px}.entry-layout::before{background:#0b121c66}.entry-content{max-width:440px}}
+
+/* Keep the entry page inside the available viewport, including the navigation. */
+body.page-entry{height:100dvh;min-height:0;overflow:hidden;display:flex;flex-direction:column}
+.page-entry .site-nav{flex:none}
+.page-entry main{flex:1;min-height:0;display:flex}
+.page-entry .entry-layout{flex:1;min-height:0;padding-block:16px}
+.page-entry .entry-content{padding:24px 32px}
+.page-entry .entry-heading{margin-bottom:20px}
+.page-entry .entry-heading::before{width:44px;height:44px;font-size:29px;margin-bottom:12px}
+.page-entry .entry-heading h1{font-size:28px;margin:6px 0}
+.page-entry .entry-content>.bg-gray-800+.bg-gray-800{margin-top:20px;padding-top:16px}
+.page-entry .entry-content>div:last-child{margin-top:16px}
+@media(max-height:760px){
+ .page-entry .entry-content{padding:18px 24px}
+ .page-entry .entry-heading{margin-bottom:14px}
+ .page-entry .entry-heading::before{display:none}
+ .page-entry .entry-content .space-y-6>:not([hidden])~:not([hidden]){margin-top:16px}
+ .page-entry .entry-content>.bg-gray-800+.bg-gray-800{margin-top:14px;padding-top:12px}
+ .page-entry .entry-content ul{grid-template-columns:1fr 1fr;gap:6px;font-size:11px}
+ .page-entry .entry-content>div:last-child{margin-top:12px}
+}
+@media(max-height:600px){
+ .page-entry .site-nav .h-16{height:48px}
+ .page-entry .entry-layout{padding-block:10px}
+ .page-entry .entry-content>.bg-gray-800+.bg-gray-800,.page-entry .entry-content>div:last-child{display:none}
+ .page-entry .entry-heading p{font-size:12px}
+ .page-entry .entry-heading h1{font-size:24px}
+}
