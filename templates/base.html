@@ -143,11 +143,18 @@
         // 显示通知
         function showNotification(message, type = 'info') {
             const notification = document.createElement('div');
-            notification.className = `p-4 rounded-lg shadow-lg mb-2 ${getNotificationClass(type)}`;
+            const inlineContainer = document.getElementById('tableNotification');
+            notification.className = inlineContainer
+                ? `table-notice table-notice-${type}`
+                : `p-4 rounded-lg shadow-lg mb-2 ${getNotificationClass(type)}`;
             notification.textContent = message;
             
-            const container = document.getElementById('notifications');
-            container.appendChild(notification);
+            const container = inlineContainer || document.getElementById('notifications');
+            if (inlineContainer) {
+                container.replaceChildren(notification);
+            } else {
+                container.appendChild(notification);
+            }
             
             // 自动移除通知
             setTimeout(() => {

@@ -153,3 +153,13 @@ button.bg-yellow-600,button.bg-orange-600{background:#2bbdb7!important;color:#06
     .player-orbit[data-count="9"] .seat[data-seat-index="7"]{left:89%;top:42%}
     .player-orbit[data-count="9"] .seat[data-seat-index="8"]{left:89%;top:70%}
 }
+
+/* Keep live table notices in the heading, clear of the analysis panel. */
+.table-heading>div{gap:16px;flex-wrap:wrap}
+#tableNotification{flex:1;min-width:180px;min-height:20px;color:var(--muted);font-size:13px;line-height:1.5;overflow-wrap:anywhere}
+.table-notice{padding:0;background:none;box-shadow:none}
+.table-notice-success{color:#66d6b0}
+.table-notice-warning{color:#f5cb78}
+.table-notice-error{color:#ff939a}
+#tableActions{flex-shrink:0}
+@media(max-width:640px){#tableNotification{flex:auto;min-width:0;width:100%}.table-heading>div{gap:10px}}
