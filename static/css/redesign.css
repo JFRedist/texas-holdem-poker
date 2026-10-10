@@ -26,11 +26,12 @@ button.bg-yellow-600,button.bg-orange-600{background:#2bbdb7!important;color:#06
 .music-control-panel{padding:7px 10px;background:#111b29;border:1px solid var(--line);border-radius:10px;box-shadow:none;max-width:calc(100vw - 32px)}
 .music-control-panel .music-btn{min-height:34px;min-width:34px;font-size:14px}.music-control-panel .track-info{font-size:11px}.music-control-content{gap:7px}
 
-/* Poker scene and existing login form share a quiet two-column surface. */
-.entry-layout{min-height:calc(100dvh - 72px);display:grid;grid-template-columns:minmax(0,1.45fr) minmax(360px,440px);align-items:center;gap:40px;max-width:1440px;margin:0 auto;padding:40px 40px;background:none}
-.entry-art{min-width:0;overflow:hidden;border-radius:24px}
-.entry-art img{display:block;width:100%;height:auto;aspect-ratio:4/3;object-fit:cover}
-.entry-content{width:100%;max-width:440px;margin:0;padding:36px;background:var(--surface);border:1px solid var(--line);border-radius:18px;box-shadow:0 24px 64px #0003}
+/* Full-bleed poker background with the login form above it. */
+.entry-layout{position:relative;isolation:isolate;min-height:calc(100dvh - 72px);display:flex;align-items:center;justify-content:flex-end;padding:40px clamp(24px,6vw,100px);background:var(--bg)}
+.entry-art{position:absolute;inset:0;z-index:-2;overflow:hidden}
+.entry-art img{display:block;width:100%;height:100%;object-fit:cover;object-position:center}
+.entry-layout::before{content:"";position:absolute;inset:0;z-index:-1;background:linear-gradient(90deg,#0b121c12 20%,#0b121c55 55%,#0b121cbb 100%)}
+.entry-content{width:100%;max-width:440px;margin:0;padding:36px;background:#121e2deb;backdrop-filter:blur(12px);border:1px solid var(--line);border-radius:18px;box-shadow:0 24px 64px #0005}
 .entry-heading{text-align:center!important;margin-bottom:28px}
 .entry-heading::before{content:"♠";display:grid;place-items:center;width:56px;height:56px;margin:0 auto 20px;border:1px solid #355c91;border-radius:14px;background:#182c47;color:#79b4ff;font-size:36px}
 .entry-heading h1{font-size:32px;letter-spacing:.04em;margin:10px 0}
@@ -165,4 +166,4 @@ button.bg-yellow-600,button.bg-orange-600{background:#2bbdb7!important;color:#06
 .table-lobby-link:hover{background:var(--raised);color:white}
 @media(max-width:640px){#tableNotification{flex:auto;min-width:0;width:100%}.table-heading>div{gap:10px}}
 
-@media(max-width:950px){.entry-layout{grid-template-columns:minmax(0,1fr);gap:24px;max-width:600px;padding:24px}.entry-art{width:100%}.entry-art img{aspect-ratio:16/9}.entry-content{max-width:none}}
+@media(max-width:950px){.entry-layout{justify-content:center;padding:24px 16px}.entry-layout::before{background:#0b121c66}.entry-content{max-width:440px}}
