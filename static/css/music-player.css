@@ -355,15 +355,15 @@
         padding: 8px;
     }
     
-    .music-control-panel:not([style*="bottom"]) {
+    .music-control-panel[style*="top: 80px"] {
         top: 70px !important;
     }
     
-    .music-control-panel[style*="right"] {
+    .music-control-panel[style*="right: 20px"] {
         right: 10px !important;
     }
     
-    .music-control-panel[style*="left"] {
+    .music-control-panel[style*="left: 20px"] {
         left: 10px !important;
     }
     
