@@ -858,6 +858,10 @@ class Table:
             'players': [p.to_dict(include_hole_cards=(p.id == player_id)) for p in self.players],
             'can_start': (len([p for p in self.players if p.chips > 0 and p.status != PlayerStatus.DISCONNECTED]) >= 2
                           and self.game_stage == GameStage.WAITING),
+            'initial_chips': self.initial_chips,
+            # 打过至少一手、且只剩一名玩家有筹码：整局结束，等待重新开始
+            'game_over': (self.hand_number > 0 and self.game_stage in (GameStage.WAITING, GameStage.FINISHED)
+                          and len([p for p in self.players if p.chips > 0]) < 2),
             'created_at': self.created_at,
             'last_activity': self.last_activity
         }

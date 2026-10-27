@@ -6,6 +6,18 @@ This file records the changes made in this fork relative to the upstream reposit
 
 ---
 
+## 2026-10-27
+
+### 修复 / Fixed
+- **全下被跟注后页面卡死**：只剩一名玩家有筹码时，服务端发出 `game_over` 后就停止，但前端没有处理该事件，也不再出现「下一轮」投票，页面没有任何可点的操作。一对一全下被跟注必然有一方输光，所以每次都会触发。
+  - 现在弹出「游戏结束」窗口，显示最终排名，可选择「重新开始」（所有玩家筹码重置为初始值并立即开始新的一手）或「返回大厅」；刷新页面后弹窗仍会出现。
+- 开始下一轮时不再把玩家状态写成字符串 `'playing'`（会把断线玩家拉回牌局，开局失败时还会导致状态读取报错）。
+
+  **Freeze after an all-in is called**: when only one player had chips left the client ignored `game_over` and showed no action at all. A game-over dialog now shows the standings with Play Again / Back to Lobby.
+
+### 测试 / Tests
+- 新增 `tests/test_game_over.py`：一对一全下直到一方输光，验证 game_over 与重新开始。
+
 ## 2026-09-30
 
 ### 修复 / Fixed

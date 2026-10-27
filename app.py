@@ -2066,14 +2066,7 @@ def start_next_round(table_id):
         if table_id in next_round_votes:
             del next_round_votes[table_id]
         
-        # 重置所有玩家状态
-        for player in table.players:
-            player.status = 'playing'
-            player.current_bet = 0
-            player.total_bet = 0
-            player.has_acted = False
-            player.hole_cards = []
-        
+        # 玩家状态由 start_new_hand 统一重置（有筹码的发牌，输光的转为观战，断线的保持断线）
         # 开始新手牌
         success = table.start_new_hand()
         print(f"🎮 table.start_new_hand() 返回: {success}")
@@ -2117,6 +2110,61 @@ def process_bot_actions_delayed(table_id, delay=1):
     if table_id in tables:
         print(f"🤖 开始处理机器人动作 (table_id: {table_id})")
         process_bot_actions(table_id)
+
+def build_game_over_data(table) -> Dict:
+    """整局结束时的排名信息"""
+    standings = sorted(table.players, key=lambda p: p.chips, reverse=True)
+    champion = standings[0] if standings and standings[0].chips > 0 else None
+    return {
+        'message': f'游戏结束，{champion.nickname} 赢得了全部筹码' if champion else '游戏结束',
+        'champion': champion.nickname if champion else None,
+        'standings': [{'nickname': p.nickname, 'chips': p.chips, 'is_bot': p.is_bot} for p in standings],
+        'initial_chips': table.initial_chips
+    }
+
+
+@socketio.on('restart_game')
+def handle_restart_game(data):
+    """整局结束后重新开始：所有玩家筹码重置为初始值，并立即开始新的一手牌"""
+    try:
+        session_id = request.sid
+        if session_id not in player_sessions:
+            emit('error', {'message': '请先登录'})
+            return
+        table_id = (data or {}).get('table_id') or session_tables.get(session_id)
+        table = tables.get(table_id)
+        if not table:
+            emit('error', {'message': '房间不存在'})
+            return
+        player_id = player_sessions[session_id]['player_id']
+        if not table.get_player(player_id):
+            emit('error', {'message': '您不在该房间中'})
+            return
+        if len([p for p in table.players if p.chips > 0]) >= 2:
+            emit('error', {'message': '游戏尚未结束，无法重新开始'})
+            return
+        
+        for player in table.players:
+            player.chips = table.initial_chips
+            if player.status != PlayerStatus.DISCONNECTED:
+                player.status = PlayerStatus.WAITING
+            if not player.is_bot:
+                update_player_chips(player.id, player.chips)
+        table.game_stage = GameStage.WAITING
+        if table_id in next_round_votes:
+            del next_round_votes[table_id]
+        
+        print(f"🔄 房间 {table.title} 重新开始，所有玩家筹码重置为 ${table.initial_chips}")
+        socketio.emit('game_restarted', {
+            'message': f'重新开始！所有玩家筹码重置为 ${table.initial_chips}',
+            'initial_chips': table.initial_chips,
+            'table': table.get_table_state()
+        }, room=table_id)
+        start_next_round(table_id)
+    except Exception as e:
+        print(f"重新开始失败: {e}")
+        emit('error', {'message': f'重新开始失败: {str(e)}'})
+
 
 def handle_hand_end(table_id, winner, showdown_info):
     """处理手牌结束"""
@@ -2249,9 +2297,10 @@ def handle_hand_end(table_id, winner, showdown_info):
         # 检查是否还有足够玩家继续游戏
         active_players = [p for p in table.players if p.chips > 0]
         if len(active_players) < 2:
-            socketio.emit('game_over', {
-                'message': '游戏结束，玩家筹码不足'
-            }, room=table_id)
+            # 只剩一名玩家有筹码：整局结束，前端显示排名并可选择重新开始
+            if table_id in next_round_votes:
+                del next_round_votes[table_id]
+            socketio.emit('game_over', build_game_over_data(table), room=table_id)
             return
         
         # 提示开始下一轮投票

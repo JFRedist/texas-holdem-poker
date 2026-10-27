@@ -605,7 +605,11 @@
         socket.on('show_next_round_vote', handleShowNextRoundVote);
         socket.on('next_round_vote_update', handleNextRoundVoteUpdate);
         socket.on('new_hand_started', handleNewHandStarted);
-        
+
+        // 整局结束（只剩一名玩家有筹码）与重新开始
+        socket.on('game_over', handleGameOver);
+        socket.on('game_restarted', handleGameRestarted);
+
         // 机器人思考事件
         socket.on('bot_thinking', handleBotThinking);
         
@@ -887,8 +891,19 @@
             
             // 同步玩家ID（特别重要在重连时）
             const synced = syncPlayerIdWithBackend(data.table);
-            
+
             updateTableDisplay();
+
+            // 刷新页面时整局已结束：重新显示结束弹窗，否则页面没有任何可点的操作
+            if (data.table.game_over) {
+                const standings = [...data.table.players].sort((a, b) => b.chips - a.chips)
+                    .map(p => ({ nickname: p.nickname, chips: p.chips, is_bot: p.is_bot }));
+                showGameOverModal({
+                    champion: standings[0] && standings[0].chips > 0 ? standings[0].nickname : null,
+                    standings: standings,
+                    initial_chips: data.table.initial_chips
+                });
+            }
             
             // 一局结束后刷新页面：恢复下一轮投票区域（table_joined 附带投票状态）
             if (currentTableState && currentTableState.next_round_voting) {
@@ -1841,6 +1856,63 @@
         } else {
             voteStatus.textContent = I18N.t('等待玩家投票...');
         }
+    }
+
+    function handleGameOver(data) {
+        // 稍等片刻再弹出，让玩家先看到最后一手的摊牌结果
+        setTimeout(() => showGameOverModal(data), 1500);
+    }
+
+    function showGameOverModal(data) {
+        document.getElementById('gameOverModal')?.remove();
+        const medals = ['🥇', '🥈', '🥉'];
+        const rows = (data.standings || []).map((p, i) => `
+            <div class="flex justify-between items-center bg-gray-700 rounded-lg px-4 py-2 ${i === 0 ? 'border border-yellow-500' : ''}">
+                <span class="text-white">${medals[i] || (i + 1) + '.'} ${p.is_bot ? '🤖' : '👤'} ${p.nickname}</span>
+                <span class="${p.chips > 0 ? 'text-yellow-400 font-bold' : 'text-gray-400'}">$${p.chips}</span>
+            </div>`).join('');
+        const modal = document.createElement('div');
+        modal.id = 'gameOverModal';
+        modal.className = 'fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-[60]';
+        modal.innerHTML = `
+            <div class="bg-gray-800 rounded-lg p-6 max-w-md w-full mx-4">
+                <h3 class="text-2xl font-bold text-white text-center mb-2">🏁 ${I18N.t('游戏结束')}</h3>
+                <p class="text-gray-300 text-center mb-4">${data.champion
+                    ? I18N.t('{0} 赢得了全部筹码', data.champion)
+                    : I18N.t('游戏结束')}</p>
+                <div class="space-y-2 mb-6">${rows}</div>
+                <div class="flex gap-3">
+                    <button id="restartGameBtn" class="flex-1 bg-green-600 hover:bg-green-500 text-white font-bold py-2.5 rounded-lg">
+                        🔄 ${I18N.t('重新开始')}
+                    </button>
+                    <button id="gameOverLobbyBtn" class="flex-1 bg-gray-600 hover:bg-gray-500 text-white py-2.5 rounded-lg">
+                        🏠 ${I18N.t('返回大厅')}
+                    </button>
+                </div>
+                <p class="text-xs text-gray-500 text-center mt-3">${I18N.t('重新开始后所有玩家筹码重置为 ${0}', data.initial_chips)}</p>
+            </div>`;
+        document.body.appendChild(modal);
+        document.getElementById('restartGameBtn').addEventListener('click', function () {
+            this.disabled = true;
+            socket.emit('restart_game', { table_id: tableId });
+        });
+        document.getElementById('gameOverLobbyBtn').addEventListener('click', () => {
+            socket.emit('leave_table');
+            location.href = '/lobby';
+        });
+    }
+
+    function handleGameRestarted(data) {
+        document.getElementById('gameOverModal')?.remove();
+        // 关掉上一局残留的摊牌弹窗
+        document.querySelectorAll('.fixed.inset-0').forEach(el => {
+            if (el.id !== 'gameOverModal' && el.querySelector('h3')) el.remove();
+        });
+        if (data.table) {
+            currentTableState = data.table;
+            updateTableDisplay();
+        }
+        showNotification('🔄 ' + I18N.t('重新开始！所有玩家筹码重置为 ${0}', data.initial_chips), 'success', 3000);
     }
 
     function handleShowNextRoundVote(data) {
